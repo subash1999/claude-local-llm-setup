@@ -21,7 +21,10 @@ if (!LOCAL_URL) {
   process.exit(1);
 }
 const HEAVY_MODEL  = process.env.LOCAL_LLM_MODEL  || 'qwen3-coder-30b-a3b-instruct';
-const TINY_MODEL   = process.env.LOCAL_TINY_MODEL || 'qwen3-1.7b';
+// TINY falls back to HEAVY when unset. On 18 GB hardware we ran HEAVY-only to
+// avoid swap thrash; keep LOCAL_TINY_MODEL optional so bigger machines can opt
+// back in without any code change (e.g. LOCAL_TINY_MODEL=qwen3-1.7b).
+const TINY_MODEL   = process.env.LOCAL_TINY_MODEL || HEAVY_MODEL;
 const CAVEMAN_MODE = (process.env.CAVEMAN_MODE || 'on').toLowerCase() !== 'off';
 
 // Inspired by JuliusBrussee/caveman — https://github.com/JuliusBrussee/caveman

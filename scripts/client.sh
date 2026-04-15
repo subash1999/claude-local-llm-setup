@@ -116,14 +116,25 @@ if claude mcp list 2>/dev/null | grep -q '^local-llm-bridge'; then
 fi
 
 say "Registering MCP server with Claude Code"
+# NOTE: LOCAL_TINY_MODEL is intentionally NOT set by default. On 18 GB Macs
+# running HEAVY+TINY together caused swap thrash / tool-call timeouts; the
+# bridge now falls back to HEAVY for triage/compress when TINY isn't given.
+# On bigger-RAM servers that DO have TINY loaded, export LOCAL_TINY_MODEL
+# before running this script to re-enable the fast path.
+MCP_ENV_ARGS=(
+  --env "LOCAL_LLM_URL=$BRIDGE_URL"
+  --env "LOCAL_LLM_MODEL=${LOCAL_HEAVY_MODEL:-qwen3-coder-30b-a3b-instruct}"
+  --env "CAVEMAN_MODE=${CAVEMAN_MODE:-on}"
+)
+if [[ -n "${LOCAL_TINY_MODEL:-}" ]]; then
+  MCP_ENV_ARGS+=(--env "LOCAL_TINY_MODEL=$LOCAL_TINY_MODEL")
+fi
+
 claude mcp add local-llm-bridge \
   --command node \
   --args "$BRIDGE_DIR/server.mjs" \
   --scope user \
-  --env "LOCAL_LLM_URL=$BRIDGE_URL" \
-  --env "LOCAL_LLM_MODEL=${LOCAL_HEAVY_MODEL:-qwen3-coder-30b-a3b-instruct}" \
-  --env "LOCAL_TINY_MODEL=${LOCAL_TINY_MODEL:-qwen3-1.7b}" \
-  --env "CAVEMAN_MODE=${CAVEMAN_MODE:-on}"
+  "${MCP_ENV_ARGS[@]}"
 
 # --- 6. Install skills --------------------------------------------------
 

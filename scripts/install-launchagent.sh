@@ -34,6 +34,15 @@ LOG=/tmp/lmstudio-server.log
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 log "boot-start.sh fired; HERE=$HERE"
+
+# Belt-and-suspenders: start LM Studio ourselves instead of depending on
+# the user having toggled "Launch at login" in LM Studio settings. `open
+# -a` on an already-running app is a no-op, so this is safe either way.
+if ! "$LMS" status >/dev/null 2>&1; then
+  log "lms backend not up — opening LM Studio"
+  open -ga "LM Studio" 2>>"$LOG" || log "open -a 'LM Studio' failed (not installed?)"
+fi
+
 for i in $(seq 1 30); do
   if "$LMS" status >/dev/null 2>&1; then
     log "lms backend ready (attempt $i)"
