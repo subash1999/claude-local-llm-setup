@@ -102,7 +102,12 @@ async function askLocal(system, user, { maxTokens = 4096, model = HEAVY_MODEL, t
   });
   if (!r.ok) throw new Error(`local server ${r.status}: ${await r.text()}`);
   const j = await r.json();
-  return j.choices[0].message.content;
+  const raw = j.choices[0].message.content;
+  // Qwen3 emits <think>...</think> reasoning before the answer. Claude should only
+  // see the final answer — strip the think block. (Keep thinking ON for accuracy;
+  // we just don't forward the reasoning tokens upstream.)
+  const i = raw.lastIndexOf('</think>');
+  return (i >= 0 ? raw.slice(i + 8) : raw).trim();
 }
 
 const server = new Server(
@@ -260,16 +265,21 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         break;
 
       case 'local_triage':
+        // Thinking ON — measured 9/10 vs 6/10 for /no_think on yes/no classification
+        // (Qwen3-1.7B, 2026-04-15 spot-check). Accuracy > speed for routing decisions.
+        // maxTokens=800 gives reasoning room; final answer after </think> is typically
+        // one word / one line.
         out = await askLocal(
           'You answer short classification/routing questions with one word or one short line. No preamble, no explanation unless asked.',
           a.context ? `${a.question}\n\n---\n${a.context}` : a.question,
-          { model: TINY_MODEL, maxTokens: 64, temperature: 0 },
+          { model: TINY_MODEL, maxTokens: 800, temperature: 0 },
         );
         break;
 
       case 'local_compress':
+        // /no_think: compression is a rewrite, not reasoning.
         out = await askLocal(
-          `You compress text. Preserve VERBATIM: code blocks, file paths, URLs, numbers, identifiers, error messages, CLI commands, stack frames. Drop: articles, filler, hedging, pleasantries, redundant restatements, meta commentary. Output ONLY the compressed text.${a.preserve ? ' Extra preservation: ' + a.preserve : ''}`,
+          `/no_think\nYou compress text. Preserve VERBATIM: code blocks, file paths, URLs, numbers, identifiers, error messages, CLI commands, stack frames. Drop: articles, filler, hedging, pleasantries, redundant restatements, meta commentary. Output ONLY the compressed text.${a.preserve ? ' Extra preservation: ' + a.preserve : ''}`,
           a.text,
           { model: TINY_MODEL, maxTokens: Math.max(512, Math.ceil(a.text.length / 3)), temperature: 0 },
         );
@@ -486,8 +496,8 @@ Check by running `/context` in Claude Code — the audit text comes back as a to
 | "Audit this file for vulns" | Claude reads + analyzes → **burns quota** | `local-audit` → HEAVY → **free** |
 | "Review this PR against our rules" | `code-reviewer` agent → cloud → **burns quota** | `local-review` → HEAVY → **free** |
 | "Summarize these 10 files" | Reads all into context → **huge quota hit** | `local-summarize` → HEAVY → **free** |
-| "Is this a test file or source?" | Claude reasons → burns small but frequent quota | `local-triage` → TINY → **free, ~instant** |
-| "Does this commit msg follow convention?" | Claude reasons | `local-triage` → TINY → **free** |
+| "Is this a test file or source?" | Claude reasons → burns small but frequent quota | `local-triage` → TINY (thinking on, ~1–6s) → **free** |
+| "Does this commit msg follow convention?" | Claude reasons | `local-triage` → TINY (thinking on) → **free** |
 | "Compress this 8K chunk before I feed it to HEAVY" | not possible on cloud | `local-compress` → TINY → **free** |
 | Architectural decisions | Claude main (cloud) | Claude main (cloud) — keep this on real Claude |
 | Tricky bug diagnosis | Claude main (cloud) | Claude main (cloud) |
