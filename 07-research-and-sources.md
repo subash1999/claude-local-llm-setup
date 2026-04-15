@@ -13,7 +13,7 @@ Candidates evaluated, scored on the user's actual requirements (Claude Max 20x o
 
 | Model | quant size | Usable ctx on 18 GB | M3 Pro est. speed | Coding quality | Claude Code plumbing (Apr 15 2026) | Multimodal | Verdict |
 |---|---|---|---|---|---|---|---|
-| **Qwen3-Coder-30B-A3B (MLX 3-bit)** | **12.4 GB** | 32K | **~18 tok/s measured** | **best in fit-class** | ✅ mature | text | **PICKED** |
+| **Qwen3-Coder-30B-A3B (MLX 3-bit)** | **12.4 GB** | 32K | **63 tok/s warm (measured)** | **best in fit-class** | ✅ mature | text | **PICKED** |
 | Qwen3-Coder-30B-A3B (MLX 4-bit) | 16.0 GB | 4–8K | ~35–50 tok/s | marginally better | ✅ mature | text | Too large for 18 GB |
 | GPT-OSS-20B | ~12 GB | 64–96K | ~20–30 | mid | ✅ mature | text | Fallback (doc 04) |
 | Gemma 4 26B A4B | ~15.6 GB | **4–8K** | ~30–45 | strong benchmarks | ❌ 8+ open bugs | text+image | Revisit (doc 05) |
@@ -39,7 +39,8 @@ Candidates evaluated, scored on the user's actual requirements (Claude Max 20x o
 - Unsloth's chat-template fix merged; tool calling stable across llama.cpp / Ollama / LM Studio
 - Actual MLX quant sizes (measured from HF, 2026-04-15): 3-bit **12.4 GB**, 4-bit **16.0 GB**, 5-bit 20.1 GB, 6-bit 24.3 GB, 8-bit 32.4 GB, bf16 60.5 GB
 - 3-bit pick rationale: 18 GB Mac needs ≤15 GB resident weights to leave room for KV cache + macOS; 4-bit's 16 GB leaves no headroom
-- **Measured on this M3 Pro 18 GB** (2026-04-15, MLX 3-bit, 32K context): load time 33.8s, warm decode **~18 tok/s**, resident memory 12.46 GiB. 3-bit pays a throughput penalty vs 4-bit (~35-50 tok/s extrapolated) due to per-layer dequant cost — trade-off accepted for fit on 18 GB.
+- **Measured on this M3 Pro 18 GB** (2026-04-15, MLX 3-bit, 32K context, parallel=4): load time 33.8s, **warm decode 63 tok/s** (SDK-reported 67 tok/s pure decode), TTFT 0.14s, resident memory 12.46 GiB. Initial 18 tok/s measurement was misleading — dominated by first-token latency on short outputs.
+- **Speculative decoding tested and rejected on this hardware** (2026-04-15): pairing main with Qwen3-1.7B 4-bit draft dropped throughput to 8 tok/s (0.13×) with TTFT ballooning to 15s. Root cause: unified memory bandwidth contention between two MLX models on 18 GB, plus the 3.3 B-active-param MoE is already so cheap per token that spec overhead dominates. MLX also requires `--parallel 1` for spec, losing multi-request serving. Conclusion: baseline config is optimal.
 
 ### GPT-OSS-20B
 - 20B dense, Apache 2.0
