@@ -41,7 +41,7 @@ lms load openai/gpt-oss-20b --context-length 65536 --keep-alive forever
 
 # 4. Verify
 lms ps
-curl http://Subashs-MacBook-Pro.local:1234/v1/models
+curl "http://$(scutil --get LocalHostName).local:1234/v1/models"
 ```
 
 ### On the client laptop

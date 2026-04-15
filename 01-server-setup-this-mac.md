@@ -5,7 +5,7 @@
 - macOS 26.3.1
 - Python 3.13.5, pip, Homebrew installed
 - 278 GB free disk
-- LAN IP: `192.168.1.21` (en0)
+- LAN IP: resolved via `ipconfig getifaddr en0` (mine happened to be `192.168.1.21`)
 - Firewall: disabled (no config needed for LAN access)
 
 ## Step 1 — Install LM Studio
@@ -115,10 +115,10 @@ The probe writes `scripts/recommended-load.sh` with the exact `lms load` command
 
 From the **other laptop**:
 ```bash
-curl http://Subashs-MacBook-Pro.local:1234/v1/models
+curl http://$(scutil --get LocalHostName).local:1234/v1/models
 # Should return JSON with BOTH qwen3-coder-30b-a3b-instruct and qwen3-1.7b listed.
 # The hostname resolves via Bonjour/mDNS so router DHCP changes don't break you.
-# Fallback if mDNS fails (VPN, guest networks): curl http://192.168.1.21:1234/v1/models
+# Fallback if mDNS fails (VPN, guest networks): curl http://$(ipconfig getifaddr en0):1234/v1/models
 ```
 
 If that fails, troubleshoot on server:

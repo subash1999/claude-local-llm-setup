@@ -1,0 +1,15 @@
+{
+  "name": "claude-local-llm-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP bridge exposing home-Mac LM Studio to Claude Code as free subagent tools.",
+  "main": "server.mjs",
+  "bin": {
+    "local-llm-bridge": "server.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "node-fetch": "^3.3.0"
+  }
+}

@@ -53,16 +53,35 @@ Claude Max 20x is **OAuth-based**, not API-key-based. Tools like `claude-code-ro
 | **`06-free-subagents-for-claude.md`** | **MCP bridge that routes audits/reviews/file-finds to the home Mac — biggest subscription saver** |
 | `07-research-and-sources.md` | Full comparison tables, benchmark data, citations |
 
-## Quick start
+## Quick start (one command per machine)
 
-1. On this Mac: follow `01-server-setup-this-mac.md` (install LM Studio + model)
-2. On the other laptop: follow `02-client-setup-other-laptop.md` (Claude Code + `claude-local` alias)
-3. **For the biggest savings, also do `06-free-subagents-for-claude.md`** (MCP bridge for free subagent work)
-4. Daily usage cheat sheet: `03-usage-patterns.md`
+```bash
+# Clone on BOTH machines:
+git clone https://github.com/subash1999/claude-local-llm-setup.git ~/claude-local-llm-setup
+cd ~/claude-local-llm-setup
+
+# ── On the SERVER Mac (the one running LM Studio) ──
+bash scripts/find_parallel.py      # probe optimal parallel/ctx for your RAM (~15 min)
+bash scripts/server.sh             # installs LM Studio, downloads models, sets up LaunchAgent
+# At the end it prints your server URL — something like:
+#   http://Your-MacBook.local:1234
+
+# ── On the CLIENT laptop (the one running Claude Code) ──
+bash scripts/client.sh http://Your-MacBook.local:1234
+# Installs Claude Code, shell aliases, MCP bridge, and skills.
+```
 
 ## LAN addresses
 
-- **Server Mac hostname (primary):** `Subashs-MacBook-Pro.local` (Bonjour/mDNS — survives IP changes)
-- **Server Mac IP (fallback):** `192.168.1.21` (re-check with `ipconfig getifaddr en0` if mDNS fails)
+- **Server Mac hostname (primary):** auto-detected — run `echo "$(scutil --get LocalHostName).local"` on the server to read it. Bonjour/mDNS means this stays stable even if the router changes your IP.
+- **Raw IP (fallback):** `ipconfig getifaddr en0` on the server Mac. Use this if mDNS is blocked (VPN, guest networks).
 - **LM Studio port:** `1234`
-- **Test endpoint:** `http://Subashs-MacBook-Pro.local:1234/v1/models`
+
+## Manual route (if you want to understand each piece)
+
+1. On the server Mac: walk through `01-server-setup-this-mac.md` (install LM Studio + model, load flags, LaunchAgent)
+2. On the client laptop: walk through `02-client-setup-other-laptop.md` (Claude Code + `claude-local` alias)
+3. **For the biggest savings, also do `06-free-subagents-for-claude.md`** (MCP bridge for free subagent work)
+4. Daily usage cheat sheet: `03-usage-patterns.md`
+
+The one-shot scripts above are just automation over these docs.
