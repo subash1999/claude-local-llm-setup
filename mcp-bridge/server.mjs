@@ -54,6 +54,15 @@ async function askLocal(system, user, { maxTokens = 4096, model = HEAVY_MODEL, t
       ],
       max_tokens: maxTokens,
       temperature,
+      // Anti-loop: Qwen3 + caveman fragments + low temp degenerates into
+      // duplicate bullet blocks when max_tokens budget overhangs the real
+      // answer. Penalty fields keep backend from re-emitting same n-grams.
+      // repetition_penalty = llama.cpp-native; frequency/presence =
+      // OpenAI-standard. Send both so any LM Studio version honors one.
+      top_p: 0.9,
+      frequency_penalty: 0.3,
+      presence_penalty: 0,
+      repetition_penalty: 1.1,
     }),
   });
   if (!r.ok) throw new Error(`local server ${r.status}: ${await r.text()}`);
