@@ -38,18 +38,18 @@ RULES:
 - never apologize, never narrate your style
 ACTIVE EVERY RESPONSE.`;
 
-function composeSystem(base) {
-  return CAVEMAN_MODE ? `${CAVEMAN_RULES}\n\n${base}` : base;
+function composeSystem(base, { caveman = CAVEMAN_MODE } = {}) {
+  return caveman ? `${CAVEMAN_RULES}\n\n${base}` : base;
 }
 
-async function askLocal(system, user, { maxTokens = 4096, model = HEAVY_MODEL, temperature = 0.2 } = {}) {
+async function askLocal(system, user, { maxTokens = 4096, model = HEAVY_MODEL, temperature = 0.2, caveman = CAVEMAN_MODE } = {}) {
   const r = await fetch(LOCAL_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
       messages: [
-        { role: 'system', content: composeSystem(system) },
+        { role: 'system', content: composeSystem(system, { caveman }) },
         { role: 'user',   content: user },
       ],
       max_tokens: maxTokens,
@@ -88,12 +88,15 @@ const TOOLS = [
   },
   {
     name: 'local_ask',
-    description: 'Free-form prompt to the heavy local model (default Qwen3-Coder-30B-A3B). Use for bulk analysis, summaries, explanations, or anything that needs real reasoning but does not need premium Claude quality. Prefer local_audit/review/find/summarize when they fit — they are purpose-built. RETURNS the model\'s text response.',
+    description: 'Free-form prompt to the heavy local model (default Qwen3-Coder-30B-A3B). Use for bulk analysis, summaries, explanations, or anything that needs real reasoning but does not need premium Claude quality. Prefer local_audit/review/find/summarize when they fit — they are purpose-built. For prose/essay/docs output, set caveman=false. RETURNS the model\'s text response.',
     inputSchema: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'The prompt to send.' },
-        system: { type: 'string', description: 'Optional system message.' },
+        prompt:      { type: 'string', description: 'The prompt to send.' },
+        system:      { type: 'string', description: 'Optional system message.' },
+        caveman:     { type: 'boolean', description: 'Override CAVEMAN_MODE for this call. Defaults to the server-wide setting. Set false for prose/essay/docs where fragments hurt.' },
+        max_tokens:  { type: 'number',  description: 'Cap output length. Default 4096. Lower (~512-1024) reduces degenerate loops on short prompts.' },
+        temperature: { type: 'number',  description: 'Sampling temperature. Default 0.2 (deterministic). Raise to 0.5-0.7 for creative prose.' },
       },
       required: ['prompt'],
     },
@@ -217,9 +220,17 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         }, null, 2);
         break;
 
-      case 'local_ask':
-        out = await askLocal(a.system || 'You are a concise, accurate assistant.', a.prompt);
+      case 'local_ask': {
+        const opts = {};
+        if (typeof a.caveman     === 'boolean') opts.caveman     = a.caveman;
+        if (typeof a.max_tokens  === 'number')  opts.maxTokens   = a.max_tokens;
+        if (typeof a.temperature === 'number')  opts.temperature = a.temperature;
+        const defaultSys = opts.caveman === false
+          ? 'You are a careful, accurate assistant. Write in full prose with clear paragraphs.'
+          : 'You are a concise, accurate assistant.';
+        out = await askLocal(a.system || defaultSys, a.prompt, opts);
         break;
+      }
 
       case 'local_triage':
         // Thinking ON — measured 9/10 vs 6/10 for /no_think on yes/no classification
