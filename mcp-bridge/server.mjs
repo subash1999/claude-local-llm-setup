@@ -34,8 +34,16 @@ RULES:
 - drop articles (the/a/an), filler (just/really/basically/actually/simply), pleasantries, hedging
 - fragments OK. short synonyms. no greetings, no sign-offs, no meta
 - technical substance EXACT. code blocks, file paths, URLs, numbers, identifiers, error messages UNCHANGED
-- pattern: [thing] [action] [reason]. [next step].
 - never apologize, never narrate your style
+- NEVER emit literal placeholder tokens in square brackets like "[thing]", "[action]", "[loop]", "[next step]". They are shape hints for YOU, not output. If you have nothing concrete to say, stop.
+
+EXAMPLES:
+  BAD:  "The function basically just returns the value directly to the caller."
+  GOOD: "fn returns value to caller."
+
+  BAD:  "[thing] [action] [reason]"
+  GOOD: "auth middleware rejects token. expiry check uses < not <=."
+
 ACTIVE EVERY RESPONSE.`;
 
 function composeSystem(base, { caveman = CAVEMAN_MODE } = {}) {
@@ -63,6 +71,12 @@ async function askLocal(system, user, { maxTokens = 4096, model = HEAVY_MODEL, t
       frequency_penalty: 0.3,
       presence_penalty: 0,
       repetition_penalty: 1.1,
+      // Belt-and-braces: if model starts emitting literal placeholder
+      // tokens from CAVEMAN_RULES examples ("[thing]", "[loop]", etc),
+      // cut it off immediately. Observed 2026-04-16 on short prompts —
+      // model degenerates into repeating the bracket template instead
+      // of the compressed answer.
+      stop: ['[thing]', '[action]', '[reason]', '[next step]', '[loop]', '[fix loop]'],
     }),
   });
   if (!r.ok) throw new Error(`local server ${r.status}: ${await r.text()}`);
