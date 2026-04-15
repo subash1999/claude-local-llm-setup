@@ -5,7 +5,7 @@
 
 ## The decision
 
-**Model:** `Qwen3-Coder-30B-A3B` (MLX 4-bit)
+**Model:** `Qwen3-Coder-30B-A3B` (MLX **3-bit**, 12.4 GB — the 4-bit variant is 16 GB and won't fit 18 GB Mac)
 **Runtime:** LM Studio (exposes native Anthropic `/v1/messages` endpoint — no proxy)
 **Server:** this MacBook Pro M3 Pro 18 GB
 **Client:** other laptop running Claude Code
@@ -20,7 +20,8 @@ Claude Code on the client laptop has **three usage modes**:
 
 - Purpose-built coding model → actually replaces Claude-level work, not just supplements it
 - MoE with 3.3 B active params → ~35–50 tok/s decode on M3 Pro despite 30 B total
-- 15 GB weights at Q4 → fits 18 GB with ~16–32K usable context
+- **12.4 GB weights at MLX 3-bit** → fits 18 GB with 32K usable context + headroom
+- 3-bit quality loss is minimal on MoE (only 3.3B active per token, not a dense 30B)
 - Mature Claude Code integration, no tool-calling bugs (unlike Gemma 4's April 2026 launch issues)
 - Apache 2.0
 

@@ -15,10 +15,10 @@ Swap Qwen3-Coder-30B-A3B → GPT-OSS-20B if:
 
 | | Qwen3-Coder-30B-A3B | GPT-OSS-20B |
 |---|---|---|
-| 4-bit MLX weights | ~15 GB | ~12 GB |
+| MLX weights (picked quant) | **3-bit: 12.4 GB** | 4-bit: ~12 GB |
 | Active params | 3.3 B (MoE) | 20 B (dense) |
 | Expected M3 Pro decode | ~35–50 tok/s | ~20–30 tok/s |
-| Usable context on 18 GB | 16–32K | 64–96K |
+| Usable context on 18 GB | 32K | 64–96K |
 | Native context window | 256K | 128K |
 | Coding benchmarks | **strongest in fit-class** | mid |
 | Tool calling | ✅ reliable | ✅ reliable (matches o4-mini on TauBench) |
@@ -31,10 +31,10 @@ Swap Qwen3-Coder-30B-A3B → GPT-OSS-20B if:
 
 ```bash
 # 1. Unload Qwen
-lms unload Qwen/Qwen3-Coder-30B-A3B-Instruct
+lms unload qwen3-coder-30b-a3b-instruct
 
 # 2. Pull GPT-OSS-20B if not already (~12 GB)
-lms get openai/gpt-oss-20b
+lms get openai/gpt-oss-20b -y
 
 # 3. Load with bigger context budget
 lms load openai/gpt-oss-20b --context-length 65536 --keep-alive forever
@@ -64,10 +64,10 @@ You can keep **both models on disk** (~27 GB total, trivial on 278 GB free) and 
 ```bash
 # Coding day — use Qwen:
 lms unload openai/gpt-oss-20b 2>/dev/null
-lms load Qwen/Qwen3-Coder-30B-A3B-Instruct --context-length 32768
+lms load qwen3-coder-30b-a3b-instruct --context-length 32768
 
 # Research / analysis day — use GPT-OSS:
-lms unload Qwen/Qwen3-Coder-30B-A3B-Instruct 2>/dev/null
+lms unload qwen3-coder-30b-a3b-instruct 2>/dev/null
 lms load openai/gpt-oss-20b --context-length 65536
 ```
 
@@ -77,7 +77,7 @@ Optional convenience aliases on the server Mac:
 
 ```bash
 # Add to server Mac's ~/.zshrc:
-alias ai-coding='lms unload --all 2>/dev/null; lms load Qwen/Qwen3-Coder-30B-A3B-Instruct --context-length 32768 --keep-alive forever'
+alias ai-coding='lms unload --all 2>/dev/null; lms load qwen3-coder-30b-a3b-instruct --context-length 32768 --keep-alive forever'
 alias ai-research='lms unload --all 2>/dev/null; lms load openai/gpt-oss-20b --context-length 65536 --keep-alive forever'
 alias ai-status='lms ps && memory_pressure | head -5'
 ```

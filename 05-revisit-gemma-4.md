@@ -40,9 +40,9 @@ pip show mlx-lm | grep -i version     # need 0.26+ with Gemma 4 support
 
 ```bash
 # On the server Mac:
-lms get google/gemma-4-26b-a4b-it @mlx-q4    # ~15.6 GB
+lms get "https://huggingface.co/mlx-community/gemma-4-26b-a4b-it-4bit" -y    # ~15.6 GB
 lms unload --all
-lms load google/gemma-4-26b-a4b-it --context-length 16384 --keep-alive forever
+lms load gemma-4-26b-a4b-it --context-length 16384 --keep-alive forever
 ```
 
 ### Step 4 — Run an A/B eval

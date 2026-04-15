@@ -17,35 +17,41 @@ open -a "LM Studio"
 ```
 
 After first launch, enable in LM Studio preferences:
-- **Settings → Developer → Enable CLI tool (`lms`)**
+- **Settings → Developer → Enable CLI tool (`lms`)** — if the button is missing, run `~/.lmstudio/bin/lms bootstrap` from the terminal instead
+- **Settings → Developer → Model Loading Guardrails** = **Relaxed** (default "Balanced" rejects loads above its pessimistic estimate; with 18 GB and 12.4 GB weights you need "Relaxed" or "Off")
 - **Settings → Launch LM Studio at login** = ON
 - **Settings → Keep models loaded in memory** = ON
+- **Settings → JIT models auto-evict** = ON (recommended — unloads previous model if you switch)
 
-## Step 2 — Download Qwen3-Coder-30B-A3B (MLX 4-bit)
+## Step 2 — Download Qwen3-Coder-30B-A3B (MLX 3-bit)
+
+**Why 3-bit, not 4-bit?** Measured sizes on Apr 15, 2026:
+- MLX 4-bit = **16.0 GB** weights → won't fit 18 GB Mac with any meaningful KV cache
+- MLX 3-bit = **12.4 GB** weights → fits with ~5 GB headroom for 32K context + OS
+
+For MoE models with only 3.3 B active params, 3-bit quality loss is minor (unlike dense models). This is the right pick for 18 GB Apple Silicon.
 
 ```bash
-# ~15 GB download, takes 5–15 min depending on network
-lms get Qwen/Qwen3-Coder-30B-A3B-Instruct @mlx-q4_k_m
+# ~13.4 GB download (weights + tokenizer), 5–15 min depending on network.
+# lms get resolves HuggingFace URLs directly:
+lms get "https://huggingface.co/mlx-community/Qwen3-Coder-30B-A3B-Instruct-3bit" -y
 
 # Verify
 lms ls | grep -i qwen3-coder
 ```
 
-If `lms get` can't find the exact tag, use the full MLX community path:
-```bash
-lms get mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit
-```
+> Note: `lms get` with a short slug like `mlx-community/...` fails against the LM Studio hub catalog — the hub only indexes staff-picked repos. Full HuggingFace URLs work for any public model.
 
 ## Step 3 — Bump GPU wired memory limit
 
-Unified memory default is capped at ~66% for GPU use. Bumping it to ~15 GB gives the model room to stay fully resident.
+Unified memory default is capped at ~66% for GPU use. Bumping it to ~14 GB gives the 12.4 GB model room to stay fully resident with KV cache.
 
 ```bash
 # Session only (resets on reboot):
-sudo sysctl iogpu.wired_limit_mb=15360
+sudo sysctl iogpu.wired_limit_mb=14336
 
 # Persistent — add to /etc/sysctl.conf:
-echo "iogpu.wired_limit_mb=15360" | sudo tee -a /etc/sysctl.conf
+echo "iogpu.wired_limit_mb=14336" | sudo tee -a /etc/sysctl.conf
 ```
 
 ## Step 4 — Start the server bound to LAN
@@ -53,18 +59,19 @@ echo "iogpu.wired_limit_mb=15360" | sudo tee -a /etc/sysctl.conf
 **Important:** default LM Studio server binds to `localhost` only. Must override with `--host 0.0.0.0` to accept connections from the other laptop.
 
 ```bash
-lms server start --host 0.0.0.0 --port 1234
+lms server start --bind 0.0.0.0 --port 1234 --cors
 ```
 
 ## Step 5 — Load the model
 
 ```bash
-lms load Qwen/Qwen3-Coder-30B-A3B-Instruct --context-length 32768 --keep-alive forever
+# Use the slug LM Studio assigned — `lms ls` shows it (usually "qwen3-coder-30b-a3b-instruct")
+lms load qwen3-coder-30b-a3b-instruct --context-length 32768 --gpu max -y
 ```
 
 Context length notes:
-- **Start with 32768 (32K)** — safe on 18 GB
-- Bump to 65536 if you see no memory pressure under real load
+- **Start with 32768 (32K)** — fits comfortably with 12.4 GB weights on 18 GB
+- Bump to 65536 only if `memory_pressure` stays green under real load
 - Don't exceed 65536; KV cache will push you into swap
 
 Verify it's loaded:
@@ -101,7 +108,7 @@ cat > ~/Library/LaunchAgents/com.subash.lmstudio-server.plist <<'EOF'
   <array>
     <string>/bin/zsh</string>
     <string>-c</string>
-    <string>/opt/homebrew/bin/lms server start --host 0.0.0.0 --port 1234 &amp;&amp; /opt/homebrew/bin/lms load Qwen/Qwen3-Coder-30B-A3B-Instruct --context-length 32768 --keep-alive forever</string>
+    <string>/Users/subash/.lmstudio/bin/lms server start --bind 0.0.0.0 --port 1234 --cors &amp;&amp; /Users/subash/.lmstudio/bin/lms load qwen3-coder-30b-a3b-instruct --context-length 32768 --gpu max -y</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -116,7 +123,7 @@ launchctl load ~/Library/LaunchAgents/com.subash.lmstudio-server.plist
 
 ## Step 8 — Free up RAM on this Mac (critical on 18 GB)
 
-Running a 15 GB model on 18 GB requires disciplined RAM. Run this cleanup script once.
+Running a 12.4 GB model + KV cache on 18 GB requires disciplined RAM. Run this cleanup script once.
 
 Keep: **Magnet, CopyLess**. Disable everything else that's background-only.
 
@@ -180,7 +187,7 @@ vm_stat | head     # Pages free should be > 30000 pages (~500 MB min)
 ## Troubleshooting
 
 **Model fails to load / crashes:**
-- Drop context length: `lms load Qwen/Qwen3-Coder-30B-A3B-Instruct --context-length 16384`
+- Drop context length: `lms load qwen3-coder-30b-a3b-instruct --context-length 16384`
 - Switch to the fallback model: see `04-fallback-gpt-oss-20b.md`
 
 **Server unreachable from other laptop:**
@@ -190,4 +197,9 @@ vm_stat | head     # Pages free should be > 30000 pages (~500 MB min)
 
 **Mac gets hot / fan spins:**
 - Expected under inference load. Keep it plugged in.
-- For overnight use: cap GPU wired memory at 13312 instead of 15360.
+- For overnight use: cap GPU wired memory at 13312 instead of 14336.
+
+**`lms: command not found` after installing LM Studio:**
+- LM Studio's "Enable CLI tool" button sometimes is missing in Developer settings.
+- Fix: run `~/.lmstudio/bin/lms bootstrap` — adds `lms` to `~/.zshrc`, `~/.bashrc`, etc.
+- New shell, or `source ~/.zshrc`, picks it up.
