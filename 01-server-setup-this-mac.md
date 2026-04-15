@@ -115,8 +115,10 @@ The probe writes `scripts/recommended-load.sh` with the exact `lms load` command
 
 From the **other laptop**:
 ```bash
-curl http://192.168.1.21:1234/v1/models
-# Should return JSON with Qwen3-Coder listed
+curl http://Subashs-MacBook-Pro.local:1234/v1/models
+# Should return JSON with BOTH qwen3-coder-30b-a3b-instruct and qwen3-1.7b listed.
+# The hostname resolves via Bonjour/mDNS so router DHCP changes don't break you.
+# Fallback if mDNS fails (VPN, guest networks): curl http://192.168.1.21:1234/v1/models
 ```
 
 If that fails, troubleshoot on server:
@@ -125,47 +127,42 @@ lsof -iTCP:1234 -sTCP:LISTEN   # confirm LM Studio is listening
 ifconfig en0 | grep inet        # confirm IP didn't change
 ```
 
-## Step 7 — Auto-start on login (optional but recommended)
+## Step 7 — Auto-start on login (one command)
 
-LM Studio's "Launch at login" + "Keep models loaded" already handles most of this, but for a fully automated server, create a LaunchAgent:
-
-Use the auto-generated loader from the probe so hardware-specific tuning survives:
+LM Studio's "Launch at login" + "Keep models loaded" auto-starts the GUI, but the server doesn't bind to `0.0.0.0` and our custom `parallel=2` flags aren't preserved. The installer below wires up a LaunchAgent that fixes both.
 
 ```bash
-# The probe wrote this to scripts/recommended-load.sh — copy to /usr/local/bin
-sudo cp scripts/recommended-load.sh /usr/local/bin/lmstudio-start.sh
-sudo chmod +x /usr/local/bin/lmstudio-start.sh
+bash scripts/install-launchagent.sh
 ```
 
-Then point the LaunchAgent at it:
+What it does:
+1. Copies `scripts/boot-start.sh` and `scripts/recommended-load.sh` to `~/Library/Application Support/claude-local-llm-server/` (scripts inside `~/Documents` are blocked from launchd by macOS TCC — "Operation not permitted" — so they must live elsewhere).
+2. Writes `~/Library/LaunchAgents/com.subash.lmstudio-server.plist` pointing at the copied `boot-start.sh`.
+3. `launchctl load`s it (fires once now too).
 
+At every login, the LaunchAgent will:
+- Wait up to 60s for LM Studio's `lms` backend to be ready
+- Start the server bound to `0.0.0.0:1234` with CORS
+- Unload any stale models and reload HEAVY + TINY with the measured-optimal `--parallel 2` flags
+
+Verify it's registered:
 ```bash
-cat > ~/Library/LaunchAgents/com.subash.lmstudio-server.plist <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.subash.lmstudio-server</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/zsh</string>
-    <string>-c</string>
-    <string>/usr/local/bin/lmstudio-start.sh</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/tmp/lmstudio-server.log</string>
-  <key>StandardErrorPath</key><string>/tmp/lmstudio-server.err</string>
-</dict>
-</plist>
-EOF
-
-launchctl load ~/Library/LaunchAgents/com.subash.lmstudio-server.plist
+launchctl list | grep lmstudio-server
+# Should show: <PID> 0 com.subash.lmstudio-server  (0 = last exit clean)
 ```
 
-> HEAVY (parallel=2, 32K ctx) + TINY (parallel=2, 4K ctx) both stay resident. In steady-state (no Claude/Terminal running on this server) swap settles ~500 MB — tolerable on the M3 Pro SSD. The TINY is used by the MCP bridge's `local_triage` and `local_compress` tools (see `06-free-subagents-for-claude.md`); HEAVY handles everything else. Thinking is ON for HEAVY tools (accuracy); OFF (`/no_think`) only for TINY's classification/compression where it's deterministic output.
+Test without rebooting:
+```bash
+launchctl kickstart -k gui/$(id -u)/com.subash.lmstudio-server
+sleep 25 && lms ps
+# Both models should appear with CONTEXT=32768/4096 and PARALLEL=2
+```
 
-> If you edit `scripts/find_parallel.py` for different thresholds or add models, re-run the probe and `sudo cp` the new `recommended-load.sh` over — the LaunchAgent will pick it up on next boot.
+Logs: `/tmp/lmstudio-server.log` (stdout) and `/tmp/lmstudio-server.err` (stderr).
+
+> HEAVY (parallel=2, 32K ctx) + TINY (parallel=2, 4K ctx) both stay resident. In steady-state (no Claude/Terminal running on this server) swap settles ~500 MB — tolerable on the M3 Pro SSD. The TINY is used by the MCP bridge's `local_triage` (thinking on, accuracy-tuned) and `local_compress` (`/no_think`, deterministic text rewrite) tools (see `06-free-subagents-for-claude.md`); HEAVY handles everything else.
+
+> **Re-running the probe:** If you edit `scripts/find_parallel.py` for different thresholds or add models, the probe regenerates `scripts/recommended-load.sh` in place. Re-run `bash scripts/install-launchagent.sh` to push the new config into the Application Support location and reload the agent.
 
 ## Step 8 — Free up RAM on this Mac (critical on 18 GB)
 

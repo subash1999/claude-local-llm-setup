@@ -60,9 +60,9 @@ Claude Max 20x is **OAuth-based**, not API-key-based. Tools like `claude-code-ro
 3. **For the biggest savings, also do `06-free-subagents-for-claude.md`** (MCP bridge for free subagent work)
 4. Daily usage cheat sheet: `03-usage-patterns.md`
 
-## LAN addresses (fill in after setup)
+## LAN addresses
 
-- **Server Mac IP:** `192.168.1.21` (confirm with `ipconfig getifaddr en0`)
-- **Server Mac hostname:** `subashs-macbook-pro.local`
+- **Server Mac hostname (primary):** `Subashs-MacBook-Pro.local` (Bonjour/mDNS — survives IP changes)
+- **Server Mac IP (fallback):** `192.168.1.21` (re-check with `ipconfig getifaddr en0` if mDNS fails)
 - **LM Studio port:** `1234`
-- **Test endpoint:** `http://192.168.1.21:1234/v1/models`
+- **Test endpoint:** `http://Subashs-MacBook-Pro.local:1234/v1/models`

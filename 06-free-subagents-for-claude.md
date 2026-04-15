@@ -15,7 +15,7 @@ From Claude's perspective it's just calling tools. From yours, you're not burnin
 ## Architecture
 
 ```
-┌────────── Other laptop ──────────┐        ┌───── Home Mac (192.168.1.21) ─────┐
+┌────────── Other laptop ──────────┐        ┌──── Home Mac (.local or .21) ─────┐
 │                                  │        │                                   │
 │  Claude Code (cloud / Max 20x)   │        │  LM Studio server :1234           │
 │  ┌─────────────────────────────┐ │        │  ┌─ HEAVY ─────────────────────┐  │
@@ -66,7 +66,7 @@ import fetch from 'node-fetch';
 import fs from 'node:fs/promises';
 import { execSync } from 'node:child_process';
 
-const LOCAL_URL    = process.env.LOCAL_LLM_URL    || 'http://192.168.1.21:1234/v1/chat/completions';
+const LOCAL_URL    = process.env.LOCAL_LLM_URL    || 'http://Subashs-MacBook-Pro.local:1234/v1/chat/completions';
 const HEAVY_MODEL  = process.env.LOCAL_LLM_MODEL  || 'qwen3-coder-30b-a3b-instruct';
 const TINY_MODEL   = process.env.LOCAL_TINY_MODEL || 'qwen3-1.7b';
 const CAVEMAN_MODE = (process.env.CAVEMAN_MODE || 'on').toLowerCase() !== 'off';
@@ -359,7 +359,7 @@ claude mcp add local-llm-bridge \
   --command node \
   --args /Users/$(whoami)/.claude/mcp-servers/local-llm-bridge/server.js \
   --scope user \
-  --env LOCAL_LLM_URL=http://192.168.1.21:1234/v1/chat/completions \
+  --env LOCAL_LLM_URL=http://Subashs-MacBook-Pro.local:1234/v1/chat/completions \
   --env LOCAL_LLM_MODEL=qwen3-coder-30b-a3b-instruct \
   --env LOCAL_TINY_MODEL=qwen3-1.7b \
   --env CAVEMAN_MODE=on
@@ -592,7 +592,7 @@ cd ~/.claude/mcp-servers/local-llm-bridge && node server.js   # look for errors
 ```
 
 ### Home Mac unreachable from MCP tool
-- Same network? `curl -s -m 3 http://192.168.1.21:1234/v1/models` from client
+- Same network? `curl -s -m 3 http://Subashs-MacBook-Pro.local:1234/v1/models` from client (fallback: raw IP `192.168.1.21`)
 - IP changed? Update `LOCAL_LLM_URL` env var in the `claude mcp add` command (re-run with updated `--env`)
 
 ### Responses are truncated

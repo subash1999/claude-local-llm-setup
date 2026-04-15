@@ -5,7 +5,7 @@ This assumes the other laptop is a Mac or Linux machine with Homebrew or npm ava
 ## Prerequisites
 
 - Node.js ≥ 18 (for Claude Code npm install)
-- On same LAN/Wi-Fi as the server Mac (`192.168.1.21`)
+- On same LAN/Wi-Fi as the server Mac. We use the Bonjour hostname `Subashs-MacBook-Pro.local` everywhere — it resolves regardless of what IP the router hands out (fallback raw IP: `192.168.1.21`). See Troubleshooting if mDNS ever fails.
 - Claude Max 20x subscription active (already logged in via `claude login`)
 
 ## Step 1 — Install Claude Code (if not already)
@@ -22,11 +22,11 @@ claude          # If prompted, run 'claude login' and OAuth-auth with Max accoun
 ## Step 2 — Verify the home server is reachable
 
 ```bash
-curl http://192.168.1.21:1234/v1/models
-# Expected: JSON with qwen3-coder-30b-a3b-instruct in the data array
+curl http://Subashs-MacBook-Pro.local:1234/v1/models
+# Expected: JSON with qwen3-coder-30b-a3b-instruct AND qwen3-1.7b in the data array
 ```
 
-If the Mac's IP changes on your router, use the hostname instead: `http://subashs-macbook-pro.local:1234/v1/models`.
+If that fails (mDNS blocked by VPN, etc.), fall back to raw IP: `curl http://192.168.1.21:1234/v1/models`. Find the current IP on the server with `ipconfig getifaddr en0`.
 
 ## Step 3 — Add the two-mode toggle to your shell
 
@@ -43,9 +43,14 @@ cat >> ~/.zshrc <<'EOF'
 #   claude-home     → alias for claude-local
 # =========================================================================
 
+# Server endpoint — single source of truth. Uses Bonjour hostname so
+# IP changes on the router don't break the setup. Override with
+# HOME_LLM_URL in your shell rc if you ever need to pin to raw IP.
+: ${HOME_LLM_URL:="http://Subashs-MacBook-Pro.local:1234"}
+
 # Local mode — routes Claude Code to the home Mac's LM Studio server
 claude-local() {
-  ANTHROPIC_BASE_URL="http://192.168.1.21:1234" \
+  ANTHROPIC_BASE_URL="$HOME_LLM_URL" \
   ANTHROPIC_AUTH_TOKEN="lmstudio" \
   ANTHROPIC_MODEL="qwen3-coder-30b-a3b-instruct" \
   CLAUDE_CODE_DISABLE_ATTRIBUTION=1 \
@@ -53,20 +58,11 @@ claude-local() {
 }
 alias claude-home='claude-local'
 
-# Use hostname if IP changes frequently on your router:
-claude-local-host() {
-  ANTHROPIC_BASE_URL="http://subashs-macbook-pro.local:1234" \
-  ANTHROPIC_AUTH_TOKEN="lmstudio" \
-  ANTHROPIC_MODEL="qwen3-coder-30b-a3b-instruct" \
-  CLAUDE_CODE_DISABLE_ATTRIBUTION=1 \
-  command claude "$@"
-}
-
 # Quick health check for the home server
 claude-home-check() {
-  curl -s -m 3 http://192.168.1.21:1234/v1/models >/dev/null \
-    && echo "✓ home server up" \
-    || echo "✗ home server unreachable"
+  curl -s -m 3 "$HOME_LLM_URL/v1/models" >/dev/null \
+    && echo "✓ home server up ($HOME_LLM_URL)" \
+    || echo "✗ home server unreachable at $HOME_LLM_URL — try: export HOME_LLM_URL=http://192.168.1.21:1234"
 }
 EOF
 
@@ -125,7 +121,7 @@ brew services start syncthing
 # Install once on client:
 brew install macfuse sshfs
 mkdir -p ~/mac-server
-sshfs subash@192.168.1.21:/Users/subash/Documents/CODING-SHARED ~/mac-server \
+sshfs subash@Subashs-MacBook-Pro.local:/Users/subash/Documents/CODING-SHARED ~/mac-server \
   -o reconnect,defer_permissions,auto_cache
 ```
 
