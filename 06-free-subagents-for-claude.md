@@ -18,26 +18,32 @@ From Claude's perspective it's just calling tools. From yours, you're not burnin
 ┌────────── Other laptop ──────────┐        ┌───── Home Mac (192.168.1.21) ─────┐
 │                                  │        │                                   │
 │  Claude Code (cloud / Max 20x)   │        │  LM Studio server :1234           │
-│  ┌─────────────────────────────┐ │        │  Qwen3-Coder-30B-A3B loaded       │
-│  │ Main conversation           │ │        │                                   │
-│  │ (orchestrator — cloud)      │ │        │                                   │
-│  └──────┬──────────────────────┘ │        │                                   │
-│         │ calls MCP tool         │        │                                   │
-│         ▼                        │        │                                   │
-│  ┌─────────────────────────────┐ │  HTTPS │  ┌──────────────────────────────┐ │
-│  │ local-mcp-bridge (this doc) │ │◄──────►│  │ /v1/chat/completions         │ │
-│  │ • local_audit(file)         │ │        │  │                              │ │
-│  │ • local_review(code)        │ │        │  └──────────────────────────────┘ │
-│  │ • local_find(pattern)       │ │        │                                   │
-│  │ • local_summarize(files)    │ │        │                                   │
-│  │ • local_ask(prompt)         │ │        │                                   │
+│  ┌─────────────────────────────┐ │        │  ┌─ HEAVY ─────────────────────┐  │
+│  │ Main conversation           │ │        │  │ qwen3-coder-30b-a3b-instruct│  │
+│  │ (orchestrator — cloud)      │ │        │  │ 32K ctx · ~63 tok/s · 12 GB │  │
+│  └──────┬──────────────────────┘ │        │  └─────────────────────────────┘  │
+│         │ calls MCP tool         │        │  ┌─ TINY  ─────────────────────┐  │
+│         ▼                        │        │  │ qwen3-1.7b                  │  │
+│  ┌─────────────────────────────┐ │  HTTP  │  │ 8K ctx  · ~57 tok/s · 1 GB  │  │
+│  │ local-mcp-bridge (this doc) │◄┼───────►│  └─────────────────────────────┘  │
+│  │ HEAVY tools:                │ │        │                                   │
+│  │ • local_ask                 │ │        │  Both loaded in parallel          │
+│  │ • local_audit               │ │        │  ~14.3 GB resident / 18 GB        │
+│  │ • local_review              │ │        │                                   │
+│  │ • local_find                │ │        │  All local replies come back      │
+│  │ • local_summarize           │ │        │  caveman-compressed (CAVEMAN_MODE) │
+│  │ TINY tools:                 │ │        │  → Claude reads 40-65% fewer      │
+│  │ • local_triage              │ │        │    tokens on each MCP result      │
+│  │ • local_compress            │ │        │                                   │
+│  │ Meta:                       │ │        │                                   │
+│  │ • local_capabilities        │ │        │                                   │
 │  └─────────────────────────────┘ │        │                                   │
 └──────────────────────────────────┘        └───────────────────────────────────┘
 ```
 
 ## Part 1 — Install the MCP bridge on the client laptop
 
-The MCP bridge is a tiny Node.js script that exposes five tools. Claude Code calls them; they forward to the home Mac.
+The MCP bridge is a tiny Node.js script that exposes eight tools (five HEAVY, two TINY, one meta). Claude Code calls them; they forward to the home Mac.
 
 ### Create the bridge
 
@@ -60,21 +66,38 @@ import fetch from 'node-fetch';
 import fs from 'node:fs/promises';
 import { execSync } from 'node:child_process';
 
-const LOCAL_URL   = process.env.LOCAL_LLM_URL   || 'http://192.168.1.21:1234/v1/chat/completions';
-const LOCAL_MODEL = process.env.LOCAL_LLM_MODEL || 'qwen3-coder-30b-a3b-instruct';
+const LOCAL_URL    = process.env.LOCAL_LLM_URL    || 'http://192.168.1.21:1234/v1/chat/completions';
+const HEAVY_MODEL  = process.env.LOCAL_LLM_MODEL  || 'qwen3-coder-30b-a3b-instruct';
+const TINY_MODEL   = process.env.LOCAL_TINY_MODEL || 'qwen3-1.7b';
+const CAVEMAN_MODE = (process.env.CAVEMAN_MODE || 'on').toLowerCase() !== 'off';
 
-async function askLocal(system, user, maxTokens = 4096) {
+// Inspired by JuliusBrussee/caveman — https://github.com/JuliusBrussee/caveman
+// Output-side compression: every reply comes back terse, Claude reads fewer tokens.
+const CAVEMAN_RULES = `Respond caveman style. Terse, telegraphic, no filler.
+RULES:
+- drop articles (the/a/an), filler (just/really/basically/actually/simply), pleasantries, hedging
+- fragments OK. short synonyms. no greetings, no sign-offs, no meta
+- technical substance EXACT. code blocks, file paths, URLs, numbers, identifiers, error messages UNCHANGED
+- pattern: [thing] [action] [reason]. [next step].
+- never apologize, never narrate your style
+ACTIVE EVERY RESPONSE.`;
+
+function composeSystem(base) {
+  return CAVEMAN_MODE ? `${CAVEMAN_RULES}\n\n${base}` : base;
+}
+
+async function askLocal(system, user, { maxTokens = 4096, model = HEAVY_MODEL, temperature = 0.2 } = {}) {
   const r = await fetch(LOCAL_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: LOCAL_MODEL,
+      model,
       messages: [
-        { role: 'system', content: system },
+        { role: 'system', content: composeSystem(system) },
         { role: 'user',   content: user },
       ],
       max_tokens: maxTokens,
-      temperature: 0.2,
+      temperature,
     }),
   });
   if (!r.ok) throw new Error(`local server ${r.status}: ${await r.text()}`);
@@ -89,8 +112,13 @@ const server = new Server(
 
 const TOOLS = [
   {
+    name: 'local_capabilities',
+    description: 'Return a description of the local LLM server: which models are loaded, their context sizes, measured speeds, and which tool to use for which task. Call this ONCE at session start to understand what local tools can do. RETURNS a capabilities manifest.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'local_ask',
-    description: 'Send a free-form prompt to the local Qwen3-Coder model on the home Mac. Use for bulk analysis, summaries, explanations, or anything that does not need premium Claude quality. RETURNS the model\'s text response.',
+    description: 'Free-form prompt to the heavy local model (Qwen3-Coder-30B-A3B, 32K context, ~60 tok/s). Use for bulk analysis, summaries, explanations, or anything that needs real reasoning but does not need premium Claude quality. Prefer local_audit/review/find/summarize when they fit — they are purpose-built. RETURNS the model\'s text response.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -102,7 +130,7 @@ const TOOLS = [
   },
   {
     name: 'local_audit',
-    description: 'Ask the local model to audit a file for issues (security, performance, bugs, style). Pass the absolute path to the file and what to check. RETURNS an audit report.',
+    description: 'Heavy model audits a file for issues (security, performance, bugs, style). Pass absolute path + what to check. RETURNS an audit report.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -148,6 +176,30 @@ const TOOLS = [
       required: ['file_paths'],
     },
   },
+  {
+    name: 'local_triage',
+    description: 'Ask the TINY 1.7B model a yes/no or one-label question. Use for classification, routing, and fast decisions — e.g. "is this file config or source code", "does this message follow Conventional Commits", "which of these paths is test data". Much faster and cheaper than local_ask. Returns a short label/answer in caveman style.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'A specific short-answer question. Ask for one word or one line.' },
+        context:  { type: 'string', description: 'Optional content the model should look at when answering (e.g. a file snippet or list of paths).' },
+      },
+      required: ['question'],
+    },
+  },
+  {
+    name: 'local_compress',
+    description: 'TINY 1.7B compresses a blob of text caveman-style. Preserves code, paths, URLs, numbers, identifiers, error messages VERBATIM; drops articles/filler/hedging/pleasantries. Typical 40-60% reduction. Use BEFORE feeding long context into local_ask/local_summarize, or when you need to return a long blob to the cloud session without eating its input window.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text:     { type: 'string', description: 'Text to compress.' },
+        preserve: { type: 'string', description: 'Optional extra rules, e.g. "keep every line that contains a stack frame".' },
+      },
+      required: ['text'],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
@@ -157,8 +209,70 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   try {
     let out;
     switch (name) {
+      case 'local_capabilities':
+        out = JSON.stringify({
+          server: LOCAL_URL,
+          caveman_mode: CAVEMAN_MODE,
+          heavy_model: {
+            name: HEAVY_MODEL,
+            params: '30B total, 3.3B active (MoE)',
+            quant: 'MLX 3-bit (~12.4 GB)',
+            context: 32768,
+            decode_tok_per_sec: 63,
+            best_for: [
+              'code review', 'file audit', 'refactor suggestions',
+              'multi-file summarization', 'architectural analysis',
+              'bulk explain', 'natural-language file finding',
+            ],
+          },
+          tiny_model: {
+            name: TINY_MODEL,
+            params: '1.7B dense',
+            quant: 'MLX 4-bit (~1 GB)',
+            context: 8192,
+            decode_tok_per_sec: 57,
+            best_for: [
+              'yes/no classification', 'one-label routing',
+              'format checks', 'short field extraction',
+              'caveman pre-compression before feeding HEAVY',
+            ],
+          },
+          tools: {
+            local_ask:        'HEAVY — free-form prompt, reasoning/analysis',
+            local_audit:      'HEAVY — security/bug audit of a file',
+            local_review:     'HEAVY — code review of a file',
+            local_find:       'HEAVY — natural-language file finding with ripgrep prefilter',
+            local_summarize:  'HEAVY — summarize one or more files',
+            local_triage:     'TINY  — one-word/one-line classification',
+            local_compress:   'TINY  — caveman-compress a blob of text',
+          },
+          routing_hints: [
+            'If decision is yes/no or single label -> local_triage.',
+            'If input is long and HEAVY must see it -> local_compress first, then call HEAVY tool.',
+            'Architectural decisions / tricky debugging / novel design -> keep on cloud Claude.',
+            'Code generation for critical prod code -> keep on cloud Claude. Local for drafts/refactors.',
+          ],
+        }, null, 2);
+        break;
+
       case 'local_ask':
         out = await askLocal(a.system || 'You are a concise, accurate assistant.', a.prompt);
+        break;
+
+      case 'local_triage':
+        out = await askLocal(
+          'You answer short classification/routing questions with one word or one short line. No preamble, no explanation unless asked.',
+          a.context ? `${a.question}\n\n---\n${a.context}` : a.question,
+          { model: TINY_MODEL, maxTokens: 64, temperature: 0 },
+        );
+        break;
+
+      case 'local_compress':
+        out = await askLocal(
+          `You compress text. Preserve VERBATIM: code blocks, file paths, URLs, numbers, identifiers, error messages, CLI commands, stack frames. Drop: articles, filler, hedging, pleasantries, redundant restatements, meta commentary. Output ONLY the compressed text.${a.preserve ? ' Extra preservation: ' + a.preserve : ''}`,
+          a.text,
+          { model: TINY_MODEL, maxTokens: Math.max(512, Math.ceil(a.text.length / 3)), temperature: 0 },
+        );
         break;
 
       case 'local_audit': {
@@ -236,8 +350,12 @@ claude mcp add local-llm-bridge \
   --args /Users/$(whoami)/.claude/mcp-servers/local-llm-bridge/server.js \
   --scope user \
   --env LOCAL_LLM_URL=http://192.168.1.21:1234/v1/chat/completions \
-  --env LOCAL_LLM_MODEL=qwen3-coder-30b-a3b-instruct
+  --env LOCAL_LLM_MODEL=qwen3-coder-30b-a3b-instruct \
+  --env LOCAL_TINY_MODEL=qwen3-1.7b \
+  --env CAVEMAN_MODE=on
 ```
+
+> `CAVEMAN_MODE=on` is the default. Set to `off` in the env if you want verbose replies for a specific session — useful when debugging what the local model is actually saying.
 
 Verify:
 ```bash
@@ -317,6 +435,40 @@ Return the summary. Only Read files into your own context if the user explicitly
 EOF
 ```
 
+### Skill: local-triage
+
+```bash
+cat > ~/.claude/skills/local-triage.md <<'EOF'
+---
+name: local-triage
+description: Answer a yes/no or one-label classification question via the TINY 1.7B local model. Use WHENEVER the task is "is X a Y", "which of these is Z", "does this match format", "classify this into bucket" — before spending any cloud reasoning. Faster than local_ask (57 tok/s, 8K context) and virtually free.
+---
+
+Use the `local_triage` MCP tool with:
+- `question`: a crisp short-answer question — ask for one word or one line
+- `context`: optional snippet the model should look at
+
+Return the answer verbatim. If it's ambiguous, THEN escalate — either retry with more context, or fall back to your own reasoning.
+EOF
+```
+
+### Skill: local-compress
+
+```bash
+cat > ~/.claude/skills/local-compress.md <<'EOF'
+---
+name: local-compress
+description: Compress a long blob of text caveman-style using the TINY local model. Use BEFORE feeding long input into local_ask/local_summarize, or when you need to return a large chunk of text to the user without blowing up context. Preserves code, paths, URLs, numbers, identifiers verbatim; strips articles/filler/hedging. Typical 40-60% reduction.
+---
+
+Use the `local_compress` MCP tool with:
+- `text`: the blob to compress
+- `preserve`: optional extra rules about what must survive
+
+Return the compressed text. If the result looks lossy on critical content, retry once with an explicit `preserve` clause (e.g. "keep every stack frame").
+EOF
+```
+
 ## Part 3 — Verify
 
 1. Start a fresh `claude` session on the client laptop
@@ -330,20 +482,90 @@ Check by running `/context` in Claude Code — the audit text comes back as a to
 
 | Task type | Without this setup | With this setup |
 |---|---|---|
-| "Find the auth code" | `Explore` agent → cloud → **burns quota** | `local-find` → home Mac → **free** |
-| "Audit this file for vulns" | Claude reads + analyzes → **burns quota** | `local-audit` → home Mac → **free** |
-| "Review this PR against our rules" | `code-reviewer` agent → cloud → **burns quota** | `local-review` → home Mac → **free** |
-| "Summarize these 10 files" | Reads all into context → **huge quota hit** | `local-summarize` → home Mac → **free** |
+| "Find the auth code" | `Explore` agent → cloud → **burns quota** | `local-find` → HEAVY → **free** |
+| "Audit this file for vulns" | Claude reads + analyzes → **burns quota** | `local-audit` → HEAVY → **free** |
+| "Review this PR against our rules" | `code-reviewer` agent → cloud → **burns quota** | `local-review` → HEAVY → **free** |
+| "Summarize these 10 files" | Reads all into context → **huge quota hit** | `local-summarize` → HEAVY → **free** |
+| "Is this a test file or source?" | Claude reasons → burns small but frequent quota | `local-triage` → TINY → **free, ~instant** |
+| "Does this commit msg follow convention?" | Claude reasons | `local-triage` → TINY → **free** |
+| "Compress this 8K chunk before I feed it to HEAVY" | not possible on cloud | `local-compress` → TINY → **free** |
 | Architectural decisions | Claude main (cloud) | Claude main (cloud) — keep this on real Claude |
 | Tricky bug diagnosis | Claude main (cloud) | Claude main (cloud) |
 | Tool-heavy agentic work | Claude main (cloud) | Claude main (cloud) |
 
+### Routing cheat-sheet for Claude
+
+Tell Claude at session start: "Call `local_capabilities` once, then follow its routing_hints." The manifest describes which model is fast at what, so Claude picks correctly without you having to name tools.
+
+General rule:
+- **Decision / classification / format check** → TINY (`local_triage`)
+- **Read, analyze, summarize, audit, review** → HEAVY (`local_ask`/`local_audit`/`local_review`/`local_find`/`local_summarize`)
+- **Pre-shrink long input before HEAVY** → TINY (`local_compress`), then the HEAVY tool
+- **Novel design, tricky debugging, prod-critical code** → keep on cloud Claude
+
+## Part 5 — Caveman mode (output compression)
+
+**Every local tool response comes back caveman-compressed** when `CAVEMAN_MODE=on` (default). This is ~40–65% fewer tokens for Claude to read, measured on typical audit/review/summary outputs.
+
+### The rules applied
+
+```
+Respond caveman style. Terse, telegraphic, no filler.
+- drop articles (the/a/an), filler (just/really/basically/actually/simply),
+  pleasantries, hedging
+- fragments OK. short synonyms. no greetings, no sign-offs, no meta
+- technical substance EXACT. code, paths, URLs, numbers, identifiers,
+  error messages UNCHANGED
+- pattern: [thing] [action] [reason]. [next step].
+```
+
+This is inspired by [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) (viral Apr 2026 Claude Code skill). We bake the prompt directly into the MCP bridge instead of shipping it as a separate skill, because:
+- Skills only affect the **outer** Claude session's output
+- We want the **local model's** output compressed (that's what Claude has to read and pay input tokens on)
+
+### Why it stacks with the MCP bridge
+
+| Layer | What caveman saves |
+|---|---|
+| Local model → MCP → Claude | HEAVY/TINY reply is ~50% shorter → Claude's **input** tokens drop |
+| TINY pre-compresses long context for HEAVY | HEAVY gets shorter prompts → local compute faster, HEAVY's reply also shorter |
+| (Optional) JuliusBrussee skill on client laptop | Claude's **own** replies shorter too — user reads less, and follow-up turns carry less history |
+
+### Optional — install the JuliusBrussee skill on the client laptop
+
+This is the client-laptop equivalent: it compresses Claude's *own* output (not the local model's). Independent of the MCP bridge. Install with one command:
+
+```bash
+# On the client laptop:
+claude plugin marketplace add JuliusBrussee/caveman
+claude plugin install caveman@caveman
+```
+
+Then inside a session you can toggle intensity: `/caveman lite`, `/caveman full` (default), `/caveman ultra`. If Claude's replies turn too cryptic for code review, drop to `lite` or `/caveman off`.
+
+### Turning caveman off
+
+For one session, override the env var when launching Claude Code:
+
+```bash
+CAVEMAN_MODE=off claude
+```
+
+Or permanently: edit the `claude mcp add` command's `--env CAVEMAN_MODE=on` to `off` and re-run.
+
+Leave it off when you explicitly need a verbose, readable local-model reply — e.g. a teaching-style explanation or a long-form draft. For everything else (audits, triage, summaries), caveman is pure win.
+
 ## Expected savings
 
-Best estimate based on typical Claude Code sessions:
-- Subagent tool calls (`Explore`, `Agent`, `code-reviewer`) are often 30–50% of total session tokens
-- If this bridge handles 70% of those, you save **~25–35% of your total daily consumption**
-- Burning through Max 20x in 5 days → should stretch to 7–8 days
+Stacked best-case, typical Claude Code day:
+- Subagent-style calls (find/audit/review/summarize) routed to local → **cuts ~30% of cloud tokens** (MCP bridge alone)
+- Caveman compression on those local replies → **further ~40% off what does come back** → another **~10–12%** of total daily tokens
+- `local_triage` replacing small reasoning-style calls Claude would otherwise do → ~3–5% more
+- Optional JuliusBrussee skill on Claude's own output → another ~10–15%
+
+Rough combined: **35–50% of a typical day's cloud quota offloaded**. Burning through Max 20x in 5 days → should stretch to 8–10 days.
+
+Numbers vary by workload — lots of "explain this code" work saves more than lots of "design this new system" work.
 
 ## Troubleshooting
 
@@ -370,7 +592,10 @@ cd ~/.claude/mcp-servers/local-llm-bridge && node server.js   # look for errors
 ## Summary
 
 - **Main Claude session (cloud)** = orchestration, planning, hard reasoning = Max 20x quota
-- **Audits, reviews, find, summarize** = routed to home Mac via MCP bridge = **free, no quota**
+- **Audits, reviews, find, summarize** = HEAVY (Qwen3-Coder-30B-A3B) via MCP bridge = **free, no quota**
+- **Yes/no + classification + pre-compression** = TINY (Qwen3-1.7B) via MCP bridge = **free, ~instant**
+- **Caveman mode** compresses every local reply ~40–65% before Claude reads it = **free input-token cut**
 - **Custom skills** make the routing automatic — you don't have to remember to invoke local tools
+- **Optional client-side** [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) skill compresses Claude's own replies too
 
 This is the piece that actually stretches your subscription. The `claude-local` alias from `02-client-setup-other-laptop.md` is still useful for fully-offline mode; this MCP bridge is the surgical-savings mode.

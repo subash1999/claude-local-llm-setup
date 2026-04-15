@@ -62,21 +62,34 @@ echo "iogpu.wired_limit_mb=14336" | sudo tee -a /etc/sysctl.conf
 lms server start --bind 0.0.0.0 --port 1234 --cors
 ```
 
-## Step 5 — Load the model
+## Step 5 — Load the models (HEAVY + TINY together)
 
+Two models run in parallel: the HEAVY 30B for reasoning/analysis, a TINY 1.7B for classification and caveman compression (used by `local_triage` and `local_compress` in the MCP bridge — see `06-free-subagents-for-claude.md`).
+
+First pull the tiny model if you don't have it (~1 GB):
 ```bash
-# Use the slug LM Studio assigned — `lms ls` shows it (usually "qwen3-coder-30b-a3b-instruct")
+lms get "https://huggingface.co/mlx-community/Qwen3-1.7B-4bit" -y
+```
+
+Then load both:
+```bash
+# HEAVY — primary workhorse
 lms load qwen3-coder-30b-a3b-instruct --context-length 32768 --gpu max -y
+
+# TINY — classifier / caveman compressor. Co-resident.
+lms load qwen3-1.7b --context-length 8192 --gpu max -y
 ```
 
 Context length notes:
-- **Start with 32768 (32K)** — fits comfortably with 12.4 GB weights on 18 GB
-- Bump to 65536 only if `memory_pressure` stays green under real load
-- Don't exceed 65536; KV cache will push you into swap
+- **HEAVY at 32K** fits comfortably with 12.4 GB weights on 18 GB
+- **TINY at 8K** is plenty for classification / compression prompts; leaves room
+- Combined resident memory: ~14.3 GB of 18 GB → ~3.7 GB OS/app headroom
+- Don't bump HEAVY past 32K while TINY is loaded; KV cache growth will swap
 
-Verify it's loaded:
+Verify both loaded:
 ```bash
 lms ps
+# Should list BOTH qwen3-coder-30b-a3b-instruct and qwen3-1.7b
 ```
 
 ## Step 6 — Verify reachability from the other laptop
@@ -108,7 +121,7 @@ cat > ~/Library/LaunchAgents/com.subash.lmstudio-server.plist <<'EOF'
   <array>
     <string>/bin/zsh</string>
     <string>-c</string>
-    <string>/Users/subash/.lmstudio/bin/lms server start --bind 0.0.0.0 --port 1234 --cors &amp;&amp; /Users/subash/.lmstudio/bin/lms load qwen3-coder-30b-a3b-instruct --context-length 32768 --gpu max -y</string>
+    <string>/Users/subash/.lmstudio/bin/lms server start --bind 0.0.0.0 --port 1234 --cors &amp;&amp; /Users/subash/.lmstudio/bin/lms load qwen3-coder-30b-a3b-instruct --context-length 32768 --gpu max -y &amp;&amp; /Users/subash/.lmstudio/bin/lms load qwen3-1.7b --context-length 8192 --gpu max -y</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -120,6 +133,8 @@ EOF
 
 launchctl load ~/Library/LaunchAgents/com.subash.lmstudio-server.plist
 ```
+
+> Both models stay resident (~14.3 GB / 18 GB). The TINY 1.7B is used by the MCP bridge's `local_triage` and `local_compress` tools (see `06-free-subagents-for-claude.md`); HEAVY handles everything else.
 
 ## Step 8 — Free up RAM on this Mac (critical on 18 GB)
 

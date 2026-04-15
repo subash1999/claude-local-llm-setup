@@ -5,16 +5,17 @@
 
 ## The decision
 
-**Model:** `Qwen3-Coder-30B-A3B` (MLX **3-bit**, 12.4 GB — the 4-bit variant is 16 GB and won't fit 18 GB Mac)
+**HEAVY model:** `Qwen3-Coder-30B-A3B` (MLX **3-bit**, 12.4 GB — the 4-bit variant is 16 GB and won't fit 18 GB Mac) — does the actual work
+**TINY model:** `Qwen3-1.7B` (MLX 4-bit, ~1 GB) — loaded alongside HEAVY for classification + caveman text compression
 **Runtime:** LM Studio (exposes native Anthropic `/v1/messages` endpoint — no proxy)
-**Server:** this MacBook Pro M3 Pro 18 GB
+**Server:** this MacBook Pro M3 Pro 18 GB (~14.3 GB resident with both models loaded)
 **Client:** other laptop running Claude Code
 
 Claude Code on the client laptop has **three usage modes**:
 
 1. **Cloud mode** (default `claude`) — real Claude via Max 20x subscription. Orchestration + hard reasoning.
 2. **Full-local mode** (`claude-local` alias) — Qwen3-Coder-30B-A3B on home server. Offline / experimental / fully-free mode.
-3. **Hybrid / free-subagents mode** (recommended daily driver) — cloud Claude as orchestrator; audits, reviews, file-finds, and summaries routed to the home Mac via an **MCP bridge** (doc 06). This is the mode that actually stretches Max 20x meaningfully, since subagent/delegation work eats most of the quota.
+3. **Hybrid / free-subagents mode** (recommended daily driver) — cloud Claude as orchestrator; audits, reviews, file-finds, summaries, and yes/no classifications routed to the home Mac via an **MCP bridge** (doc 06). Every local reply comes back **caveman-compressed** (40–65% fewer tokens for Claude to read). This is the mode that actually stretches Max 20x meaningfully.
 
 ## Why this pick (short version)
 
