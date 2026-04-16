@@ -116,13 +116,15 @@ if claude mcp list 2>/dev/null | grep -q '^local-llm-bridge'; then
 fi
 
 say "Registering MCP server with Claude Code"
+# Claude Code CLI dropped --command/--args in 2.1.x; the current form uses
+# `--` as a separator before the subprocess argv. -s/-e short flags work
+# across 1.x and 2.x, so use those for compatibility.
 claude mcp add local-llm-bridge \
-  --command node \
-  --args "$BRIDGE_DIR/server.mjs" \
-  --scope user \
-  --env "LOCAL_LLM_URL=$BRIDGE_URL" \
-  --env "LOCAL_LLM_MODEL=${LOCAL_HEAVY_MODEL:-qwen3-coder-30b-a3b-instruct}" \
-  --env "CAVEMAN_MODE=${CAVEMAN_MODE:-on}"
+  -s user \
+  -e "LOCAL_LLM_URL=$BRIDGE_URL" \
+  -e "LOCAL_LLM_MODEL=${LOCAL_HEAVY_MODEL:-qwen3-coder-30b-a3b-instruct}" \
+  -e "CAVEMAN_MODE=${CAVEMAN_MODE:-on}" \
+  -- node "$BRIDGE_DIR/server.mjs"
 
 # --- 6. Install skills --------------------------------------------------
 
