@@ -9,7 +9,7 @@
 # What runs automatically:
 #   1. Homebrew + LM Studio install
 #   2. lms CLI bootstrap
-#   3. HEAVY + TINY model downloads
+#   3. HEAVY model download
 #   4. iogpu.wired_limit_mb bump (asks for sudo)
 #   5. LaunchAgent install (boot-time auto-start + LAN binding)
 #
@@ -31,7 +31,7 @@ for arg in "$@"; do
     --skip-wired-limit)  SKIP_WIRED=1 ;;
     --skip-launchagent)  SKIP_LA=1 ;;
     -h|--help)
-      sed -n '2,20p' "$0"; exit 0 ;;
+      sed -n '2,25p' "$0"; exit 0 ;;
     *)
       echo "Unknown flag: $arg" >&2; exit 2 ;;
   esac
@@ -92,7 +92,6 @@ say "lms ready: $("$LMS" --version 2>&1 | head -1)"
 # --- 4. Models ------------------------------------------------------------
 
 HEAVY_REPO="mlx-community/Qwen3-Coder-30B-A3B-Instruct-3bit"
-TINY_REPO="mlx-community/Qwen3-1.7B-4bit"
 
 have_model() { "$LMS" ls 2>/dev/null | grep -qi "$1"; }
 
@@ -102,12 +101,6 @@ if [[ $SKIP_MODELS -eq 0 ]]; then
   else
     say "Downloading HEAVY: $HEAVY_REPO (~13 GB, 5–15 min)"
     "$LMS" get "https://huggingface.co/$HEAVY_REPO" -y
-  fi
-  if have_model "qwen3-1.7b"; then
-    say "TINY model already downloaded"
-  else
-    say "Downloading TINY: $TINY_REPO (~1 GB)"
-    "$LMS" get "https://huggingface.co/$TINY_REPO" -y
   fi
 else
   say "Skipping model downloads (--skip-models)"
@@ -169,7 +162,7 @@ cat <<EOF
   Raw IP fallback:            http://${IP_FIRST:-<no LAN IP>}:1234
 
   Verify from this Mac:       curl http://${HOSTNAME_LOCAL}:1234/v1/models
-  Verify from client laptop:  same URL, must return both models
+  Verify from client laptop:  same URL, must return qwen3-coder-30b-a3b-instruct
 
   On the client laptop, run:
     git clone <this-repo> && cd claude-local-llm-setup

@@ -62,36 +62,23 @@ echo "iogpu.wired_limit_mb=14336" | sudo tee -a /etc/sysctl.conf
 lms server start --bind 0.0.0.0 --port 1234 --cors
 ```
 
-## Step 5 — Load the models (HEAVY + TINY together)
+## Step 5 — Load HEAVY
 
-Two models run in parallel: the HEAVY 30B for reasoning/analysis, a TINY 1.7B for classification and caveman compression (used by `local_triage` and `local_compress` in the MCP bridge — see `06-free-subagents-for-claude.md`).
-
-First pull the tiny model if you don't have it (~1 GB):
+Load HEAVY with the empirically-measured optimal flags:
 ```bash
-lms get "https://huggingface.co/mlx-community/Qwen3-1.7B-4bit" -y
-```
-
-Then load both with the empirically-measured optimal flags (see `scripts/find_parallel.py`):
-```bash
-# HEAVY — parallel=2 lets Claude issue 2 concurrent tool calls cleanly
+# parallel=2 lets Claude issue 2 concurrent tool calls cleanly
 lms load qwen3-coder-30b-a3b-instruct --context-length 32768 --gpu max --parallel 2 -y
-
-# TINY — parallel=2, small 4K context is plenty for classification / compression
-lms load qwen3-1.7b --context-length 4096 --gpu max --parallel 2 -y
 ```
 
 **Why these numbers (measured 2026-04-15 on this exact machine):**
-- `parallel=2` on both: matches Claude's typical concurrent tool-call burst. parallel=4 pushed swap delta to +511 MB (fail); parallel=2 was +481 MB (pass). parallel=1 was surprisingly worse (+1061 MB swap — macOS paging quirk at single-stream).
-- HEAVY 32K ctx: tested viable. 24K/16K saves negligible RAM because KV is demand-allocated in MLX.
-- TINY 4K ctx: triage/compress prompts are always small. 8K was overkill.
-- Combined resident after warmup: ~14.4 GB weights + ~1–1.5 GB transient swap during load → settles to ~500 MB steady swap. Tolerable on SSD.
+- `parallel=2`: matches Claude's typical concurrent tool-call burst. parallel=4 triggered a timeout-storm on 18 GB; parallel=1 was surprisingly worse on swap (macOS paging quirk at single-stream).
+- `ctx=32768`: tested viable. KV is demand-allocated in MLX, so dropping to 24K/16K saves negligible RAM and just caps what you can audit in one call.
+- Resident after warmup: ~13.4 GB weights + KV cache → settles to ~100 MB steady swap. Safe.
 
-**In steady-state (no Claude Code / Terminal running on this server Mac), swap delta drops further** — those workbench apps cost ~500-700 MB. This config assumes dedicated-server mode.
-
-Verify both loaded:
+Verify:
 ```bash
 lms ps
-# Should list BOTH qwen3-coder-30b-a3b-instruct AND qwen3-1.7b with PARALLEL=2.
+# Should list qwen3-coder-30b-a3b-instruct with CONTEXT=32768 PARALLEL=2.
 ```
 
 ### Re-measuring on different hardware
@@ -101,22 +88,22 @@ If you migrate to another Mac (different RAM, different macOS version) or add/re
 ```bash
 # Unload cleanly first
 lms unload --all
-# Full ladder (~15 min, 12 combos)
+# Full ladder (~9 combos):
 python3 scripts/find_parallel.py
 # Quick (3 combos):
 python3 scripts/find_parallel.py --quick
-# HEAVY-only mode (if dual doesn't fit):
-python3 scripts/find_parallel.py --solo
+# Force a specific context:
+python3 scripts/find_parallel.py --heavy-ctx 16384
 ```
 
-The probe writes `scripts/recommended-load.sh` with the exact `lms load` commands that fit your machine.
+The probe writes `scripts/recommended-load.sh` with the exact `lms load` command that fits your machine.
 
 ## Step 6 — Verify reachability from the other laptop
 
 From the **other laptop**:
 ```bash
 curl http://$(scutil --get LocalHostName).local:1234/v1/models
-# Should return JSON with BOTH qwen3-coder-30b-a3b-instruct and qwen3-1.7b listed.
+# Should return JSON with qwen3-coder-30b-a3b-instruct.
 # The hostname resolves via Bonjour/mDNS so router DHCP changes don't break you.
 # Fallback if mDNS fails (VPN, guest networks): curl http://$(ipconfig getifaddr en0):1234/v1/models
 ```
@@ -141,9 +128,10 @@ What it does:
 3. `launchctl load`s it (fires once now too).
 
 At every login, the LaunchAgent will:
+- Self-open LM Studio (`open -ga "LM Studio"`) so you don't depend on the GUI's "Launch at login" toggle
 - Wait up to 60s for LM Studio's `lms` backend to be ready
 - Start the server bound to `0.0.0.0:1234` with CORS
-- Unload any stale models and reload HEAVY + TINY with the measured-optimal `--parallel 2` flags
+- Unload any stale models and reload HEAVY with the measured-optimal `--parallel 2` flags
 
 Verify it's registered:
 ```bash
@@ -155,14 +143,12 @@ Test without rebooting:
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.subash.lmstudio-server
 sleep 25 && lms ps
-# Both models should appear with CONTEXT=32768/4096 and PARALLEL=2
+# HEAVY should appear with CONTEXT=32768 PARALLEL=2.
 ```
 
 Logs: `/tmp/lmstudio-server.log` (stdout) and `/tmp/lmstudio-server.err` (stderr).
 
-> HEAVY (parallel=2, 32K ctx) + TINY (parallel=2, 4K ctx) both stay resident. In steady-state (no Claude/Terminal running on this server) swap settles ~500 MB — tolerable on the M3 Pro SSD. The TINY is used by the MCP bridge's `local_triage` (thinking on, accuracy-tuned) and `local_compress` (`/no_think`, deterministic text rewrite) tools (see `06-free-subagents-for-claude.md`); HEAVY handles everything else.
-
-> **Re-running the probe:** If you edit `scripts/find_parallel.py` for different thresholds or add models, the probe regenerates `scripts/recommended-load.sh` in place. Re-run `bash scripts/install-launchagent.sh` to push the new config into the Application Support location and reload the agent.
+> **Re-running the probe:** If you edit `scripts/find_parallel.py` for different thresholds or swap models, the probe regenerates `scripts/recommended-load.sh` in place. Re-run `bash scripts/install-launchagent.sh` to push the new config into the Application Support location and reload the agent.
 
 ## Step 8 — Free up RAM on this Mac (critical on 18 GB)
 

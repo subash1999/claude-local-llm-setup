@@ -21,10 +21,6 @@ if (!LOCAL_URL) {
   process.exit(1);
 }
 const HEAVY_MODEL  = process.env.LOCAL_LLM_MODEL  || 'qwen3-coder-30b-a3b-instruct';
-// TINY falls back to HEAVY when unset. On 18 GB hardware we ran HEAVY-only to
-// avoid swap thrash; keep LOCAL_TINY_MODEL optional so bigger machines can opt
-// back in without any code change (e.g. LOCAL_TINY_MODEL=qwen3-1.7b).
-const TINY_MODEL   = process.env.LOCAL_TINY_MODEL || HEAVY_MODEL;
 const CAVEMAN_MODE = (process.env.CAVEMAN_MODE || 'on').toLowerCase() !== 'off';
 
 // Inspired by JuliusBrussee/caveman — https://github.com/JuliusBrussee/caveman
@@ -90,9 +86,19 @@ async function askLocal(system, user, { maxTokens = 4096, model = HEAVY_MODEL, t
 }
 
 const server = new Server(
-  { name: 'local-llm-bridge', version: '0.1.0' },
+  { name: 'local-llm-bridge', version: '0.2.0' },
   { capabilities: { tools: {} } }
 );
+
+// Cap the text we ship to HEAVY per call. 32K ctx * ~3 chars/tok = ~96 KB total
+// budget, but leaving room for instructions + output. 500 KB is the raw-bytes
+// ceiling we truncate at before sending; HEAVY will still tokenize internally.
+const MAX_CONTEXT_BYTES = 500_000;
+function capText(s) {
+  return s.length > MAX_CONTEXT_BYTES
+    ? s.slice(0, MAX_CONTEXT_BYTES) + '\n\n...[truncated — input exceeded 500 KB]...'
+    : s;
+}
 
 const TOOLS = [
   {
@@ -164,27 +170,48 @@ const TOOLS = [
     },
   },
   {
-    name: 'local_triage',
-    description: 'Ask the TINY local model a yes/no or one-label question. Use for classification, routing, and fast decisions — e.g. "is this file config or source code", "does this message follow Conventional Commits", "which of these paths is test data". Much faster and cheaper than local_ask. Returns a short label/answer in caveman style.',
+    name: 'local_feature_audit',
+    description: 'Multi-file version of local_audit. Heavy model reads a set of related files as ONE unit and audits them against a feature spec — reports correctness gaps, missing error paths, missing tests, cross-file inconsistencies, and architectural issues. Use when auditing a feature that spans multiple files (handler + service + DB + tests). RETURNS a structured audit report with file:line references.',
     inputSchema: {
       type: 'object',
       properties: {
-        question: { type: 'string', description: 'A specific short-answer question. Ask for one word or one line.' },
-        context:  { type: 'string', description: 'Optional content the model should look at when answering (e.g. a file snippet or list of paths).' },
+        file_paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Absolute paths of all files that together implement the feature.',
+        },
+        spec: {
+          type: 'string',
+          description: 'What the feature is supposed to do. Can be a requirements description, a ticket body, or a one-paragraph goal.',
+        },
       },
-      required: ['question'],
+      required: ['file_paths', 'spec'],
     },
   },
   {
-    name: 'local_compress',
-    description: 'TINY model compresses a blob of text caveman-style. Preserves code, paths, URLs, numbers, identifiers, error messages VERBATIM; drops articles/filler/hedging/pleasantries. Typical 40-60% reduction. Use BEFORE feeding long context into local_ask/local_summarize, or when you need to return a long blob to the cloud session without eating its input window.',
+    name: 'local_diff_review',
+    description: 'Heavy model reviews a git diff between two refs. Use for pre-PR self-review, reviewing someone else\'s branch, or post-hoc sanity check. Much cheaper than pulling each changed file into cloud context. RETURNS a review report with approve/request-changes verdict and line-referenced findings.',
     inputSchema: {
       type: 'object',
       properties: {
-        text:     { type: 'string', description: 'Text to compress.' },
-        preserve: { type: 'string', description: 'Optional extra rules, e.g. "keep every line that contains a stack frame".' },
+        repo:         { type: 'string', description: 'Absolute path to the git repo root.' },
+        ref_a:        { type: 'string', description: 'Base ref (e.g. "main", "origin/main", a commit hash).' },
+        ref_b:        { type: 'string', description: 'Head ref (e.g. "HEAD", a branch name, a commit hash).' },
+        instructions: { type: 'string', description: 'What the reviewer should focus on. E.g. "security issues only" or "verify error handling is consistent".' },
       },
-      required: ['text'],
+      required: ['repo', 'ref_a', 'ref_b', 'instructions'],
+    },
+  },
+  {
+    name: 'local_group_commits',
+    description: 'Heavy model clusters a range of git commits into logical PR-sized groups by theme/feature. Returns PR-ready grouping with suggested Conventional-Commits titles and commit-hash lists. Use when a branch has accumulated many commits and you want to split it into reviewable PRs, or when writing release notes. RETURNS a grouping plan.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo:  { type: 'string', description: 'Absolute path to the git repo root.' },
+        range: { type: 'string', description: 'Git revision range, e.g. "main..HEAD", "HEAD~20..HEAD", "v1.2.0..v1.3.0".' },
+      },
+      required: ['repo', 'range'],
     },
   },
 ];
@@ -206,28 +233,23 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
               'code review', 'file audit', 'refactor suggestions',
               'multi-file summarization', 'architectural analysis',
               'bulk explain', 'natural-language file finding',
-            ],
-          },
-          tiny_model: {
-            name: TINY_MODEL,
-            best_for: [
-              'yes/no classification', 'one-label routing',
-              'format checks', 'short field extraction',
-              'caveman pre-compression before feeding HEAVY',
+              'multi-file feature audits', 'git diff reviews',
+              'clustering commits into PR-sized groups',
             ],
           },
           tools: {
-            local_ask:        'HEAVY — free-form prompt, reasoning/analysis',
-            local_audit:      'HEAVY — security/bug audit of a file',
-            local_review:     'HEAVY — code review of a file',
-            local_find:       'HEAVY — natural-language file finding with ripgrep prefilter',
-            local_summarize:  'HEAVY — summarize one or more files',
-            local_triage:     'TINY  — one-word/one-line classification (thinking on, accuracy-tuned)',
-            local_compress:   'TINY  — caveman-compress a blob of text (/no_think, deterministic)',
+            local_ask:            'HEAVY — free-form prompt, reasoning/analysis',
+            local_audit:          'HEAVY — security/bug audit of a SINGLE file',
+            local_review:         'HEAVY — code review of a SINGLE file',
+            local_find:           'HEAVY — natural-language file finding with ripgrep prefilter',
+            local_summarize:      'HEAVY — summarize one or more files',
+            local_feature_audit:  'HEAVY — multi-file audit of a feature vs spec',
+            local_diff_review:    'HEAVY — review a git diff between two refs',
+            local_group_commits:  'HEAVY — cluster commits into PR-sized groups by theme',
           },
           routing_hints: [
-            'If decision is yes/no or single label -> local_triage.',
-            'If input is long and HEAVY must see it -> local_compress first, then call HEAVY tool.',
+            'File review / audit / feature audit / diff review / commit grouping -> use the purpose-built tool above.',
+            'Free-form classification or short-answer questions -> local_ask with a concise system prompt.',
             'Architectural decisions / tricky debugging / novel design -> keep on cloud Claude.',
             'Code generation for critical prod code -> keep on cloud Claude. Local for drafts/refactors.',
           ],
@@ -245,27 +267,6 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         out = await askLocal(a.system || defaultSys, a.prompt, opts);
         break;
       }
-
-      case 'local_triage':
-        // Thinking ON — measured 9/10 vs 6/10 for /no_think on yes/no classification
-        // (Qwen3-1.7B, 2026-04-15 spot-check). Accuracy > speed for routing decisions.
-        // maxTokens=800 gives reasoning room; final answer after </think> is typically
-        // one word / one line.
-        out = await askLocal(
-          'You answer short classification/routing questions with one word or one short line. No preamble, no explanation unless asked.',
-          a.context ? `${a.question}\n\n---\n${a.context}` : a.question,
-          { model: TINY_MODEL, maxTokens: 800, temperature: 0 },
-        );
-        break;
-
-      case 'local_compress':
-        // /no_think: compression is a rewrite, not reasoning.
-        out = await askLocal(
-          `/no_think\nYou compress text. Preserve VERBATIM: code blocks, file paths, URLs, numbers, identifiers, error messages, CLI commands, stack frames. Drop: articles, filler, hedging, pleasantries, redundant restatements, meta commentary. Output ONLY the compressed text.${a.preserve ? ' Extra preservation: ' + a.preserve : ''}`,
-          a.text,
-          { model: TINY_MODEL, maxTokens: Math.max(512, Math.ceil(a.text.length / 3)), temperature: 0 },
-        );
-        break;
 
       case 'local_audit': {
         const code = await fs.readFile(a.file_path, 'utf8');
@@ -303,7 +304,104 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         );
         out = await askLocal(
           'You produce concise, structured summaries. No filler.',
-          `Summarize the following files${a.focus ? ` focusing on ${a.focus}` : ''}:\n\n${chunks.join('\n\n')}`,
+          capText(`Summarize the following files${a.focus ? ` focusing on ${a.focus}` : ''}:\n\n${chunks.join('\n\n')}`),
+        );
+        break;
+      }
+
+      case 'local_feature_audit': {
+        // Read files sequentially so we can stop at the budget instead of
+        // hammering disk for files we won't ship. Cap per-file at 200 KB so
+        // a single huge file can't starve the rest of the set.
+        const chunks = [];
+        let total = 0;
+        for (const p of a.file_paths) {
+          if (total >= MAX_CONTEXT_BYTES) {
+            chunks.push(`=== ${p} (skipped — context budget exhausted) ===`);
+            continue;
+          }
+          let content;
+          try {
+            content = await fs.readFile(p, 'utf8');
+          } catch (e) {
+            chunks.push(`=== ${p} (read error: ${e.message}) ===`);
+            continue;
+          }
+          const perFileCap = 200_000;
+          const trimmed = content.length > perFileCap
+            ? content.slice(0, perFileCap) + '\n...[file truncated at 200 KB]...'
+            : content;
+          chunks.push(`=== ${p} ===\n${trimmed}`);
+          total += trimmed.length;
+        }
+        out = await askLocal(
+          'You audit feature implementations across multiple files as a single unit. Report concrete findings with file:line references. Be direct — no filler, no restating the spec.',
+          capText(
+            `FEATURE SPEC:\n${a.spec}\n\n` +
+            `Audit the files below AS A SET for:\n` +
+            `- correctness vs the spec (missing behavior, wrong behavior)\n` +
+            `- cross-file inconsistencies (mismatched types, contracts, names)\n` +
+            `- missing error paths and edge cases\n` +
+            `- missing or weak tests\n` +
+            `- architectural issues (misplaced logic, leaky abstractions)\n\n` +
+            `Output format:\n` +
+            `- [SEVERITY] path:line — finding (one line)\n` +
+            `Severities: BLOCKER / MAJOR / MINOR / NIT.\n\n` +
+            `FILES:\n\n${chunks.join('\n\n')}`,
+          ),
+        );
+        break;
+      }
+
+      case 'local_diff_review': {
+        // Quote refs so branch names with slashes (feature/x) or special chars
+        // don't break the shell. `git diff A..B` means A-as-base, B-as-head.
+        const diff = execSync(
+          `git diff ${JSON.stringify(a.ref_a)}..${JSON.stringify(a.ref_b)}`,
+          { cwd: a.repo, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 },
+        );
+        if (!diff.trim()) {
+          out = `No diff between ${a.ref_a} and ${a.ref_b}.`;
+          break;
+        }
+        out = await askLocal(
+          'You are an experienced code reviewer. Read the diff carefully. Be direct: approve or request changes with concrete reasons. Reference file:line from the diff hunks.',
+          capText(
+            `Review this git diff per these instructions:\n\n${a.instructions}\n\n` +
+            `Output format:\n` +
+            `VERDICT: APPROVE | REQUEST CHANGES\n` +
+            `Then a list of findings:\n- [SEVERITY] path:line — finding\n\n` +
+            `DIFF (${a.ref_a}..${a.ref_b}):\n\`\`\`diff\n${diff}\n\`\`\``,
+          ),
+        );
+        break;
+      }
+
+      case 'local_group_commits': {
+        // `--name-only` appends changed-file list after each commit.
+        // Format: hash | subject | author | date, then a blank line, then files.
+        const log = execSync(
+          `git log --date=short --name-only --format='===COMMIT=== %h | %s | %an | %ad%n%b' ${JSON.stringify(a.range)}`,
+          { cwd: a.repo, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 },
+        );
+        if (!log.trim()) {
+          out = `No commits in range ${a.range}.`;
+          break;
+        }
+        out = await askLocal(
+          'You cluster git commits into logical PR-sized groups by theme. Use Conventional Commits style for group titles (feat:, fix:, refactor:, chore:, docs:, test:). Be direct — no filler.',
+          capText(
+            `Group these commits by theme/feature. For each group, output:\n` +
+            `- suggested PR title (Conventional Commits style)\n` +
+            `- 1-2 sentence description of the group's purpose\n` +
+            `- list of included commit hashes (short form)\n\n` +
+            `Rules:\n` +
+            `- don't force unrelated commits together\n` +
+            `- if a commit is truly isolated, put it alone\n` +
+            `- use a "Miscellaneous" bucket only as last resort\n` +
+            `- order groups by logical merge order (dependencies first)\n\n` +
+            `COMMITS (${a.range}):\n\n${log}`,
+          ),
         );
         break;
       }

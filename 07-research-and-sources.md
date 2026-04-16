@@ -40,13 +40,13 @@ Candidates evaluated, scored on the user's actual requirements (Claude Max 20x o
 - Actual MLX quant sizes (measured from HF, 2026-04-15): 3-bit **12.4 GB**, 4-bit **16.0 GB**, 5-bit 20.1 GB, 6-bit 24.3 GB, 8-bit 32.4 GB, bf16 60.5 GB
 - 3-bit pick rationale: 18 GB Mac needs ≤15 GB resident weights to leave room for KV cache + macOS; 4-bit's 16 GB leaves no headroom
 - **Measured on this M3 Pro 18 GB** (2026-04-15, MLX 3-bit, 32K context, parallel=4): load time 33.8s, **warm decode 63 tok/s** (SDK-reported 67 tok/s pure decode), TTFT 0.14s, resident memory 12.46 GiB. Initial 18 tok/s measurement was misleading — dominated by first-token latency on short outputs.
-- **Speculative decoding tested and rejected on this hardware** (2026-04-15): pairing main with Qwen3-1.7B 4-bit draft dropped throughput to 8 tok/s (0.13×) with TTFT ballooning to 15s. Root cause: unified memory bandwidth contention between two MLX models on 18 GB, plus the 3.3 B-active-param MoE is already so cheap per token that spec overhead dominates. MLX also requires `--parallel 1` for spec, losing multi-request serving. Conclusion: baseline config is optimal.
-- **Parallel-probe findings** (`scripts/find_parallel.py`, 2026-04-15): dual-model co-residency on 18 GB is viable at `parallel=2, ctx=32K` for HEAVY and `parallel=2, ctx=4K` for TINY. Swap delta +481 MB (under the 500 MB threshold). Alternatives measured:
-  - `parallel=4` both: +511 MB swap (FAIL, marginal)
-  - `parallel=1` both: +1061 MB swap (FAIL — counterintuitive, likely macOS paging preferring to keep warm pages vs. aggressive eviction at higher concurrency)
+- **Speculative decoding tested and rejected on this hardware** (2026-04-15): pairing main with a 1.7B draft model dropped throughput to 8 tok/s (0.13×) with TTFT ballooning to 15s. Root cause: unified memory bandwidth contention between two MLX models on 18 GB, plus the 3.3 B-active-param MoE is already so cheap per token that spec overhead dominates. MLX also requires `--parallel 1` for spec, losing multi-request serving. Conclusion: baseline config is optimal.
+- **Parallel-probe findings** (`scripts/find_parallel.py`, 2026-04-15): HEAVY-only at `parallel=2, ctx=32K` is the sweet spot on 18 GB. Swap delta +481 MB (under the 500 MB threshold). Alternatives measured:
+  - `parallel=4`: +511 MB swap (FAIL, marginal)
+  - `parallel=1`: +1061 MB swap (FAIL — counterintuitive, likely macOS paging preferring to keep warm pages vs. aggressive eviction at higher concurrency)
   - Single-stream chat at `parallel=1`: HEAVY reply took 89s for 40 tokens (absurd vs. 20s at parallel=2). KV cache pre-allocation at higher parallelism seems to stabilize memory layout.
-  - Weights alone: HEAVY 13.37 GB + TINY 984 MB = 14.35 GB. On 18 GB total with ~2 GB macOS kernel/wired, only ~2 GB room left for KV + app state. Explains the tight fit.
-- **Probe methodology**: `probe()` unloads all models → measures baseline swap_used → loads both with candidate params → fires warmup chat at each (thinking ON, realistic 120-200 token budgets) → measures swap_used again. PASS requires swap delta ≤ 500 MB AND both chats returned non-empty output. Free-MB floors were dropped from the criteria — macOS reassigns free pages constantly, so the number is noise. Swap delta is the truthful signal.
+  - Weights alone: HEAVY 13.37 GB. On 18 GB total with ~2 GB macOS kernel/wired, ~2.5 GB room left for KV + app state. Tight but workable.
+- **Probe methodology**: `probe()` unloads all models → measures baseline swap_used → loads HEAVY with candidate params → fires warmup chat (thinking ON, 120-token budget) → measures swap_used again. PASS requires swap delta ≤ 500 MB AND the chat returned non-empty output. Free-MB floors were dropped from the criteria — macOS reassigns free pages constantly, so the number is noise. Swap delta is the truthful signal.
 
 ### GPT-OSS-20B
 - 20B dense, Apache 2.0

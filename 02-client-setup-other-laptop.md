@@ -24,7 +24,7 @@ claude          # If prompted, run 'claude login' and OAuth-auth with Max accoun
 ```bash
 SERVER_URL=http://<your-mac>.local:1234   # the URL server.sh printed
 curl "$SERVER_URL/v1/models"
-# Expected: JSON with qwen3-coder-30b-a3b-instruct AND qwen3-1.7b in the data array
+# Expected: JSON with qwen3-coder-30b-a3b-instruct in the data array.
 ```
 
 If that fails (mDNS blocked by VPN, guest network, etc.), fall back to raw IP — get it on the server with `ipconfig getifaddr en0` and use `http://<ip>:1234` instead.

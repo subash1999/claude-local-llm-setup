@@ -5,10 +5,9 @@
 
 ## The decision
 
-**HEAVY model:** `Qwen3-Coder-30B-A3B` (MLX **3-bit**, 12.4 GB — the 4-bit variant is 16 GB and won't fit 18 GB Mac) — does the actual work
-**TINY model:** `Qwen3-1.7B` (MLX 4-bit, ~1 GB) — loaded alongside HEAVY for classification + caveman text compression
+**Model:** `Qwen3-Coder-30B-A3B` (MLX **3-bit**, 12.4 GB — the 4-bit variant is 16 GB and won't fit 18 GB Mac) — does all the work
 **Runtime:** LM Studio (exposes native Anthropic `/v1/messages` endpoint — no proxy)
-**Server:** this MacBook Pro M3 Pro 18 GB (~14.3 GB resident with both models loaded)
+**Server:** this MacBook Pro M3 Pro 18 GB (~13.4 GB resident)
 **Client:** other laptop running Claude Code
 
 Claude Code on the client laptop has **three usage modes**:
