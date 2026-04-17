@@ -1,0 +1,14 @@
+{
+  "run_ts_iso": "2026-04-17T11:47:31.341Z",
+  "wall_ms": 41652,
+  "files": [
+    "/Users/subash/claude-local-llm-setup/bench/fixtures/clerk/use-email-sign-up.ts",
+    "/Users/subash/claude-local-llm-setup/bench/fixtures/clerk/use-email-sign-in.ts",
+    "/Users/subash/claude-local-llm-setup/bench/fixtures/clerk/use-google-auth.ts"
+  ],
+  "spec": "Clerk v3 Future API integration. Flag deprecated Clerk v2 shapes: `signUp.verifications.sendEmailCode`, `signUp.verifications.verifyEmailCode`, `signIn.emailCode.sendCode`, `signIn.emailCode.verifyCode`, and `startSSOFlow` (renamed to `startFlow`). Plus flag the v2 return shape `result.createdSessionId` (v3 uses `session.id`) and fragile error-message string matching for cancel paths.",
+  "jsonl_files": [
+    "local-llm-bridge-filters-1776426409690.jsonl"
+  ],
+  "tool_response_bytes": 2564
+}
