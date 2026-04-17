@@ -268,6 +268,97 @@ function parseFindingLine(line) {
     sig: findingProblemSig(m[5]),
   };
 }
+
+// Fix E (2026-04-17 bench BUG 2): extract distinctive code-shaped tokens from
+// a finding's text so we can verify the finding against the actual source
+// file. Accept only identifiers that look code-shaped: camelCase, snake_case,
+// dotted paths, or tokens containing a digit. Plain English words are
+// intentionally excluded — they'd drive false-drop on descriptive findings
+// ("minor style issue") that we can't reliably cross-check against source.
+function extractFindingSymbols(text) {
+  const tokens = text.match(/[A-Za-z_][A-Za-z0-9_.]*[A-Za-z0-9_]|[A-Za-z_][A-Za-z0-9_]*/g) || [];
+  const seen = new Set();
+  const out = [];
+  for (const tok of tokens) {
+    const lower = tok.toLowerCase();
+    if (FINDING_STOP_WORDS.has(lower)) continue;
+    if (seen.has(tok)) continue;
+    const hasCamel = /[a-z][A-Z]/.test(tok);
+    const hasSnake = /_/.test(tok);
+    const hasDot = /\./.test(tok);
+    const hasDigit = /\d/.test(tok);
+    const distinctive = hasCamel || hasSnake || hasDot || hasDigit;
+    if (!distinctive) continue;
+    out.push(tok);
+    seen.add(tok);
+  }
+  return out;
+}
+
+// Fix E: re-read the cited file ±3 lines around each finding and verify the
+// finding's distinctive symbols actually appear there. If not in the window
+// but found exactly once elsewhere in the file, snap the line number. If
+// nowhere (past-EOF fabrications) or ambiguously everywhere, drop it and log.
+// When no fileMap entry exists for a finding's path, the finding passes
+// through unchanged — verify is skipped, not failed.
+function verifyAndSnapFindings(raw, fileMap) {
+  const lines = raw.split('\n');
+  const out = [];
+  let dropped = 0;
+  let snapped = 0;
+
+  for (const line of lines) {
+    const f = parseFindingLine(line);
+    if (!f) { out.push(line); continue; }
+    const content = fileMap[f.path];
+    if (!content) { out.push(line); continue; }
+
+    const symbols = extractFindingSymbols(f.text);
+    if (!symbols.length) { out.push(line); continue; }
+
+    const srcLines = content.split('\n');
+    const wStart = Math.max(0, f.line - 4);       // cited line is 1-based; window is ±3
+    const wEnd = Math.min(srcLines.length, f.line + 3);
+    const inWindow = srcLines
+      .slice(wStart, wEnd)
+      .some((l) => symbols.some((s) => l.includes(s)));
+    if (inWindow) { out.push(line); continue; }
+
+    // Not in the ±3 window. Scan whole file for exactly-one match.
+    const hits = [];
+    for (let i = 0; i < srcLines.length; i++) {
+      if (symbols.some((s) => srcLines[i].includes(s))) hits.push(i + 1);
+    }
+    if (hits.length === 1) {
+      out.push(
+        `- [${f.severity}] ${f.path}:${hits[0]} — ${f.text}  [line snapped from ${f.line} by bridge]`,
+      );
+      snapped++;
+      console.error(
+        `[local-llm-bridge] finding snapped: ${f.path}:${f.line} → ${hits[0]} (symbols: ${symbols.slice(0, 3).join(', ')})`,
+      );
+    } else {
+      dropped++;
+      console.error(
+        `[local-llm-bridge] finding dropped — symbols ${JSON.stringify(symbols.slice(0, 3))} ` +
+          `not near cited line ${f.path}:${f.line} (${hits.length} whole-file match(es)): ${f.text.slice(0, 80)}`,
+      );
+    }
+  }
+
+  if (dropped || snapped) {
+    const parts = [];
+    if (snapped) parts.push(`${snapped} snapped to correct line`);
+    if (dropped) parts.push(`${dropped} dropped (symbols absent near cited line — likely hallucinated)`);
+    out.push('');
+    out.push(`  [INFO] bridge source cross-check: ${parts.join('; ')}. See server logs for detail.`);
+  }
+  return out.join('\n');
+}
+
+function postProcessFindings(raw, fileMap = {}) {
+  return dedupAndBreakLoop(verifyAndSnapFindings(raw, fileMap));
+}
 function dedupAndBreakLoop(raw) {
   const lines = raw.split('\n');
   const out = [];
@@ -646,7 +737,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
           { caveman: false, penalties: 'structured', maxTokens: 1200 },
         );
-        out = dedupAndBreakLoop(raw);
+        out = postProcessFindings(raw, { [a.file_path]: code });
         break;
       }
 
@@ -659,7 +750,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           `Output format:\nVERDICT: APPROVE | REQUEST CHANGES\nThen list findings:\n- [SEVERITY] path:line — finding`,
           { caveman: false, penalties: 'structured', maxTokens: 1500 },
         );
-        out = dedupAndBreakLoop(raw);
+        out = postProcessFindings(raw, { [a.file_path]: code });
         break;
       }
 
@@ -706,6 +797,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         // hammering disk for files we won't ship. Cap per-file at 200 KB so
         // a single huge file can't starve the rest of the set.
         const chunks = [];
+        const fileMap = {};
         let total = 0;
         for (const p of a.file_paths) {
           if (total >= MAX_CONTEXT_BYTES) {
@@ -724,6 +816,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             ? content.slice(0, perFileCap) + '\n...[file truncated at 200 KB]...'
             : content;
           chunks.push(`=== ${p} ===\n${numberLines(trimmed)}`);
+          fileMap[p] = trimmed;
           total += trimmed.length;
         }
         const rawFeature = await askLocal(
@@ -744,7 +837,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           ),
           { caveman: false, penalties: 'structured', maxTokens: 2000 },
         );
-        out = dedupAndBreakLoop(rawFeature);
+        out = postProcessFindings(rawFeature, fileMap);
         break;
       }
 
@@ -771,7 +864,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           ),
           { caveman: false, penalties: 'structured', maxTokens: 2000 },
         );
-        out = dedupAndBreakLoop(rawDiff);
+        // diff_review has no single-file map (the diff spans many files and
+        // cited line numbers are hunk-relative). Skip verify; dedup/AP only.
+        out = postProcessFindings(rawDiff);
         break;
       }
 
@@ -851,7 +946,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
           { model: DEEP_MODEL, caveman: false, penalties: 'structured', maxTokens: 1800 },
         );
-        out = dedupAndBreakLoop(rawDeep);
+        out = postProcessFindings(rawDeep, { [a.file_path]: code });
         break;
       }
 
