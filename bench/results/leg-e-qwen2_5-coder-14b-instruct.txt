@@ -1,0 +1,6 @@
+LINE 6: SQL concatenation — injection risk  
+LINE 13: weak hash (md5) for passwords  
+LINE 20: off-by-one — accepts count+1 items  
+LINE 27: missing null check on optional chain result  
+LINE 34: promise rejection silently swallowed  
+LINE 39: hardcoded secret

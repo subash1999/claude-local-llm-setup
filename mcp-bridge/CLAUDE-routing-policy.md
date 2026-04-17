@@ -90,4 +90,17 @@ _User-maintained. Edits here survive reinstall. Fill after rule 7 quick-check. D
 
 | Tool | Trust | Symptom / date |
 |---|---|---|
+| `local_ask` (short ≤100 tok out) | 🟢 | 2026-04-17 bench: 5/5 classify labels, p50 211 ms on 7B / 323 ms on 14B |
+| `local_ask` (long-form >200 tok out) | 🟢 | 2026-04-17 bench: retry-backoff design coherent, no repeat; p50 25.4 s on 7B / 50.0 s on 14B |
+| `local_audit` | 🟢 | 2026-04-17 Leg E: 6/6 planted-bug recall P=R=1.0 on 7B + 14B. **Line numbers drift systematically (~4 lines on 7B, 1-3 on 14B). Re-locate symbol before applying. Output is symptom-labels only, no severity/remediation — if downstream needs actionable fixes, cloud it.** |
+| `local_summarize` | 🟢 | unchanged |
+| `local_find` | 🟢 | unchanged |
+| `local_review` | 🟢 | unchanged |
+| `local_diff_review` | 🟢 | unchanged |
+| `local_group_commits` | 🟢 | unchanged |
+| `local_feature_audit` | 🟡 partial | **2026-04-17 Leg A + Leg F (Opus oracle cross-check): 6-file output contains (a) 8 real BLOCKERs, (b) 2 invented BLOCKERs INSIDE the clean-looking block (use-me.ts:4 "null-safety gap" — guard exists L7-9; VerifyCodeScreen.tsx:24 "code.length<6 guard missing" — guard exists L55-58), (c) 28+ fabricated `handleResend` repeats at mechanical +5 line-offset past EOF.** Pathology is bridge prompt template / parser, not model (direct-call clean on adversarial + accuracy legs). Tracked for server-side fix (`bench/report/BUGFIX-HANDOFF.md`). **DO NOT trust the first-block findings blindly — spot-check each against source.** Cap ≤3 files per call; for prod-critical auth/payment features use cloud or split into per-file `local_deep_audit`. |
+| `local_semantic_search` | 🟢 | unchanged |
+| `local_deep_audit` (14B) | 🟢 | 2026-04-17 Leg E: 6/6 P=R=1.0, tighter line-number accuracy than 7B (drift 1-3 vs 7B 1-7). Serialize (safe=1). |
+
+_Bench: `bench/report/report.md` · raw: `bench/results/*.csv` · open server-side bugs: `bench/report/BUGFIX-HANDOFF.md`._
 <!-- user-trust-map END -->

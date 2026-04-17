@@ -1,0 +1,32 @@
+// Repetition bait — 30 nearly-identical functions inviting loop pathology.
+// Each differs only by a suffix digit.
+export function handleClickA1() { return 1; }
+export function handleClickA2() { return 2; }
+export function handleClickA3() { return 3; }
+export function handleClickA4() { return 4; }
+export function handleClickA5() { return 5; }
+export function handleClickB1() { return 1; }
+export function handleClickB2() { return 2; }
+export function handleClickB3() { return 3; }
+export function handleClickB4() { return 4; }
+export function handleClickB5() { return 5; }
+export function handleClickC1() { return 1; }
+export function handleClickC2() { return 2; }
+export function handleClickC3() { return 3; }
+export function handleClickC4() { return 4; }
+export function handleClickC5() { return 5; }
+export function handleClickD1() { return 1; }
+export function handleClickD2() { return 2; }
+export function handleClickD3() { return 3; }
+export function handleClickD4() { return 4; }
+export function handleClickD5() { return 5; }
+export function handleClickE1() { return 1; }
+export function handleClickE2() { return 2; }
+export function handleClickE3() { return 3; }
+export function handleClickE4() { return 4; }
+export function handleClickE5() { return 5; }
+export function handleClickF1() { return 1; }
+export function handleClickF2() { return 2; }
+export function handleClickF3() { return 3; }
+export function handleClickF4() { return 4; }
+export function handleClickF5() { return 5; }

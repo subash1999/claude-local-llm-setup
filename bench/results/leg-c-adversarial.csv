@@ -1,0 +1,9 @@
+model,case,wall_ms,http_status,prompt_tokens,completion_tokens,finding_count,max_line_repeat,claims_no_findings,maybe_truncated,response_len
+qwen2.5-coder-14b-instruct,empty,1186,200,73,3,0,1,true,true,11
+qwen2.5-coder-14b-instruct,repetition-bait,3002,200,466,3,0,1,true,true,11
+qwen2.5-coder-14b-instruct,binary,818,200,90,3,0,1,true,true,11
+qwen2.5-coder-14b-instruct,huge,11747,200,2076,3,0,1,true,true,11
+qwen2.5-coder-7b-instruct,empty,6092,200,73,3,0,1,true,true,11
+qwen2.5-coder-7b-instruct,repetition-bait,1656,200,466,3,0,1,true,true,11
+qwen2.5-coder-7b-instruct,binary,423,200,90,3,0,1,true,true,11
+qwen2.5-coder-7b-instruct,huge,5622,200,2076,3,0,1,true,true,11
