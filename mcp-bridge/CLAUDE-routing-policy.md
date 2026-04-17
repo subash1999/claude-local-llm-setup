@@ -18,7 +18,7 @@ MCP tools from `local-llm-bridge` → offload work to home Mac (Qwen2.5-Coder-7B
    | review branch / PR / diff between two refs | `local_diff_review` |
    | cluster commits into PR-sized groups, draft release notes | `local_group_commits` |
    | "find files that do X" / "where is code for Y" (keyword-friendly) | `local_find` |
-   | "conceptually about X" / semantic match on large repo | `local_semantic_search` |
+   | "conceptually about X" / semantic match on large repo | `local_semantic_search` (falls to `local_find` if no index) |
    | summarize / overview-describe files | `local_summarize` |
    | bulk explain, draft boilerplate, simple refactor, yes/no classify | `local_ask` |
 
@@ -36,9 +36,20 @@ MCP tools from `local-llm-bridge` → offload work to home Mac (Qwen2.5-Coder-7B
    - Findings contradict each other or code verifiable in one Read.
    - User pushback ("wrong", "missed X", "try again") → redo on DEEP or cloud.
 
+   **Orchestrator-doubt escalation (fires ALONGSIDE the literal triggers above):**
+   - One Read / one Grep contradicts a specific claim in local reply → escalate.
+   - Task is production-critical (auth, payments, migrations, security-touching) → second-opinion cloud is MANDATORY regardless of local quality.
+   - Downstream action is irreversible (push to prod, DB migration, `push --force`, customer comms, deleting data) → cloud confirms before act.
+   - Two near-identical outputs on different inputs in same session → repetition-loop signal, escalate + flag trust-map.
+   - Any time orchestrator has concrete doubt about local correctness: escalate. Doubt is a valid trigger — better one cloud retry than a wrong push.
+
    Escalation ladder:
-   - **4a. HEAVY (7B) → DEEP (14B)** for audit/review tasks: call `local_deep_audit` (or re-run the original tool with the deep tier if the bridge exposes one). 14B is ~8.3 GB JIT, first call ~8s, subsequent fast. Still $0 quota. Stop here if DEEP answer is sound.
-   - **4b. DEEP → cloud** if DEEP also produced a rule-4 failure. Do the cloud work yourself once, one-line why ("local + deep both missed the SQLi in getUser — redoing on cloud"). No loop back to local same task.
+   - **4a. HEAVY (7B) → DEEP (14B)** for audit/review shapes: call `local_deep_audit` (or re-run original tool with deep tier if bridge exposes one). 14B is ~8.3 GB JIT, first call ~8s, subsequent fast. Still $0 quota. Stop here if DEEP answer is sound.
+   - **4b. DEEP → cloud** if DEEP also rule-4 fails. Do the cloud work yourself once, one-line why ("local + deep both missed the SQLi in getUser — redoing on cloud"). No loop back to local same task.
+
+   **Non-audit shapes** (find / search / summarize / classify / group_commits): no DEEP middle tier. Ladder is: local → ONE retry with rephrased prompt → cloud. Same never-loop discipline.
+
+   **No-index fallback for `local_semantic_search`:** if tool returns `"No semantic index for <root>"` → drop to `local_find` for this call; tell the user the one-line build command (`node scripts/semantic-index.mjs <root>`); never block the current task on building. If result includes `[STALE INDEX: ...]` warning → trust results, note staleness in summary; auto-rebuild is armed post-commit on indexed repos via `.git/hooks/post-commit`.
 
    If DEEP is not available (14B not downloaded or trust-map 🔴 on `local_deep_audit`), skip 4a, go straight to cloud.
 
@@ -70,6 +81,26 @@ MCP tools from `local-llm-bridge` → offload work to home Mac (Qwen2.5-Coder-7B
    - **`local_deep_audit` (14B): MUST serialize — safe 1, ceiling 1.** Peak resident RAM with 7B + 14B ≈ 15GB, near the wired limit. Two concurrent 14B calls = swap = latency cliff.
 
    When `/insights` suggests a parallel pattern (e.g. "parallel agent swarm per issue"), the fan-out width is bounded by the slowest tool in the pipeline, not the fastest. One audit per worktree × 4 worktrees is safe; beyond that, queue.
+
+9. **Subagent routing propagation.** Task subagents inherit user-scope MCP tools (verified: `mcp__local-llm-bridge__*` callable from `general-purpose` / `Explore` / `feature-dev:*` / plugin agents) BUT they do NOT inherit this policy — their system prompt is their own. Without explicit routing hints, subagents default to Grep / Read / own-reasoning and burn cloud quota on work the parent expected to go local. This is the biggest leak in subagent-dense patterns (per-issue swarm, audit-queue fan-out, graph-informed refactors).
+
+   **Orchestrator MUST prepend this snippet to every Task agent prompt** (unless the subagent's sole job is rule-3 cloud-only: architecture / novel design / tool-heavy multi-step debug / production-critical codegen):
+
+   ```
+   ROUTING: You have `mcp__local-llm-bridge__local_*` tools. Before Grep/Read/Bash/own-reasoning for these shapes, call the matching local tool first:
+   - single-file audit → local_audit
+   - single-file review vs rules → local_review
+   - diff / PR / branch review → local_diff_review
+   - multi-file feature audit vs spec → local_feature_audit (≤3 files per call)
+   - cluster commits into PRs → local_group_commits
+   - keyword file find → local_find
+   - semantic / conceptual match on large repo → local_semantic_search; if it returns "No semantic index for <root>", fall back to local_find for this call and tell parent the build command `node scripts/semantic-index.mjs <root>` — do NOT block the task on building
+   - summary of 1-2 small files → local_summarize
+   - short enum / classify / yes-no (≤120 out tokens) → local_ask
+   Rule-4 ladder (audit shapes): HEAVY weak/rule-4 → local_deep_audit (14B) ONCE → if DEEP also rule-4 → own reasoning (Grep/Read/Bash), tell parent "local + deep both rule-4 on <task>". Non-audit shapes: local → ONE retry with rephrased prompt → own reasoning. NEVER loop same local tool in same task. Respect local_capabilities.concurrency.safe when parallelizing.
+   ```
+
+   Same orchestrator-doubt rule applies to subagent output: if a Task agent returns results and the orchestrator has concrete doubt (contradicts spot-check, task is production-critical, downstream irreversible), re-do on cloud — don't silently accept a subagent's reply any more than you'd silently accept a local reply.
 
 <!-- user-trust-map START (preserved across regen) -->
 _User-maintained. Edits here survive reinstall. Fill after rule 7 quick-check. Default: 🟢 until evidence demotes._
