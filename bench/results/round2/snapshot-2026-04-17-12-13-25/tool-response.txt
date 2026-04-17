@@ -1,0 +1,6 @@
+- BLOCKER / /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:8 — SQL injection risk due to string concatenation in SQL query.
+- MAJOR / /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:13 — Weak password hashing using MD5.
+- MINOR / /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:20 — Off-by-one error in loop bounds, accepting count+1 items.
+- MINOR / /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:28 — Potential null dereference after optional chaining cast to non-null.
+- MINOR / /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:36 — Promise rejection silently swallowed, potentially hiding errors.
+- MINOR / /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:41 — Hardcoded secret key.

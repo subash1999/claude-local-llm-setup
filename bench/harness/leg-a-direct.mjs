@@ -32,6 +32,8 @@ const SNAPSHOT_DIR = path.join(
   `snapshot-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`,
 );
 
+const MODE = process.env.LEG_A_MODE || 'clerk';  // 'clerk' | 'planted-bugs'
+
 const FILES = [
   path.join(CLERK_DIR, 'use-email-sign-up.ts'),
   path.join(CLERK_DIR, 'use-email-sign-in.ts'),
@@ -45,6 +47,12 @@ const SPEC =
   '`signIn.emailCode.verifyCode`, and `startSSOFlow` (renamed to `startFlow`). ' +
   'Plus flag the v2 return shape `result.createdSessionId` (v3 uses ' +
   '`session.id`) and fragile error-message string matching for cancel paths.';
+
+const PLANTED_BUGS_FILE = path.join(REPO_ROOT, 'bench', 'fixtures', 'planted-bugs.ts');
+const PLANTED_BUGS_CHECKLIST =
+  'SQL injection, weak password hashing (MD5), off-by-one loop bounds, ' +
+  'null-safe access (optional chaining cast to non-null), empty catch swallowing errors, ' +
+  'hardcoded secret keys (Stripe/other vendors).';
 
 async function main() {
   fs.mkdirSync(SNAPSHOT_DIR, { recursive: true });
@@ -75,18 +83,35 @@ async function main() {
     { capabilities: {} },
   );
 
-  console.error('[leg-a-direct] connecting to bridge...');
+  console.error(`[leg-a-direct] mode=${MODE} connecting to bridge...`);
   await client.connect(transport);
   console.error(`[leg-a-direct] debug dir: ${debugDir}`);
-  console.error(`[leg-a-direct] files: ${FILES.length}`);
 
+  let result;
+  let callArgs;
+  let toolName;
   const t0 = Date.now();
-  const result = await client.callTool({
-    name: 'local_feature_audit',
-    arguments: { spec: SPEC, file_paths: FILES },
-  });
+  if (MODE === 'planted-bugs' || MODE === 'planted-bugs-deep') {
+    toolName = MODE === 'planted-bugs-deep' ? 'local_deep_audit' : 'local_audit';
+    callArgs = { file_path: PLANTED_BUGS_FILE, checklist: PLANTED_BUGS_CHECKLIST };
+    console.error(`[leg-a-direct] ${toolName} ${PLANTED_BUGS_FILE}`);
+    result = await client.callTool(
+      { name: toolName, arguments: callArgs },
+      undefined,
+      { timeout: 180000 },
+    );
+  } else {
+    toolName = 'local_feature_audit';
+    callArgs = { spec: SPEC, file_paths: FILES };
+    console.error(`[leg-a-direct] local_feature_audit files=${FILES.length}`);
+    result = await client.callTool(
+      { name: toolName, arguments: callArgs },
+      undefined,
+      { timeout: 120000 },
+    );
+  }
   const wall = Date.now() - t0;
-  console.error(`[leg-a-direct] feature_audit returned in ${wall} ms`);
+  console.error(`[leg-a-direct] ${toolName} returned in ${wall} ms`);
 
   const outText = result.content?.[0]?.text ?? '';
   fs.writeFileSync(path.join(SNAPSHOT_DIR, 'tool-response.txt'), outText);
@@ -97,9 +122,10 @@ async function main() {
 
   const manifest = {
     run_ts_iso: new Date().toISOString(),
+    mode: MODE,
+    tool: toolName,
     wall_ms: wall,
-    files: FILES,
-    spec: SPEC,
+    call_args: callArgs,
     jsonl_files: jsonlFiles,
     tool_response_bytes: outText.length,
   };

@@ -1,0 +1,6 @@
+- [BLOCKER] /Users/subash/claude-local-llm-setup/bench/fixtures/clerk/use-email-sign-up.ts:19 — Deprecated method `signUp.verifications.sendEmailCode` is used. | fix: Replace with `signUp.verifications.sendEmailCode()`.
+- [BLOCKER] /Users/subash/claude-local-llm-setup/bench/fixtures/clerk/use-email-sign-up.ts:32 — Deprecated method `signUp.verifications.verifyEmailCode` is used. | fix: Replace with `signUp.verifications.verifyEmailCode()`.
+- [BLOCKER] /Users/subash/claude-local-llm-setup/bench/fixtures/clerk/use-email-sign-in.ts:19 — Deprecated method `signIn.emailCode.sendCode` is used. | fix: Replace with `signIn.emailCode.sendCode()`.
+- [BLOCKER] /Users/subash/claude-local-llm-setup/bench/fixtures/clerk/use-email-sign-in.ts:32 — Deprecated method `signIn.emailCode.verifyCode` is used. | fix: Replace with `signIn.emailCode.verifyCode()`.
+- [BLOCKER] /Users/subash/claude-local-llm-setup/bench/fixtures/clerk/use-google-auth.ts:18 — Deprecated method `startSSOFlow` is used. | fix: Replace with `startFlow()`.
+- [BLOCKER] /Users/subash/claude-local-llm-setup/bench/fixtures/clerk/use-google-auth.ts:26 — Fragile error-message string matching for cancel paths. | fix: Use a more specific condition to check for cancellation.

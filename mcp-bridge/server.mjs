@@ -347,6 +347,61 @@ function extractFindingSymbols(text) {
   return out;
 }
 
+// Fix S (Round 2 Item 3, 2026-04-17): post-hoc line-number snap for findings
+// whose cited line drifts relative to the symbol. Leg-a rebench
+// (bench/results/leg-a-rebench-real-2026-04-17.md:38-39) showed 14B exact
+// on planted-bugs after Fix G but 7B still ±1 on 5/6 bugs — Fix G's line-
+// number-prefix alone doesn't correct 7B's output because the model
+// sometimes counts instead of reading the prefix. This function grep-snaps
+// the line number to the actual symbol position when the evidence is clean.
+// Runs BEFORE verifyAndSnapFindings so the ±5 window check sees snapped
+// positions, and before dedupAndBreakLoop so snapped findings dedup correctly.
+//
+// Policy (matches ROUND2-PROMPT.md Item 3):
+//   - 0 symbol hits in file  → leave line as-is (Fix E will scrub).
+//   - 1 symbol hit, within ±5 of cited line → snap to that line.
+//   - 1 symbol hit, farther than ±5 → leave as-is (Fix E decides).
+//   - Multiple hits → pick the hit closest to the cited line.
+function snapFindingLinesByGrep(raw, fileMap) {
+  const lines = raw.split('\n');
+  const out = [];
+  for (const line of lines) {
+    const f = parseFindingLine(line);
+    if (!f) { out.push(line); continue; }
+    const content = fileMap[f.path];
+    if (!content) { out.push(line); continue; }
+    const symbols = extractFindingSymbols(f.text);
+    if (!symbols.length) { out.push(line); continue; }
+
+    const srcLines = content.split('\n');
+    const hits = [];
+    for (let i = 0; i < srcLines.length; i++) {
+      if (symbols.some((s) => srcLines[i].includes(s))) hits.push(i + 1);
+    }
+    if (hits.length === 0) { out.push(line); continue; }
+
+    let chosen;
+    if (hits.length === 1) {
+      if (Math.abs(hits[0] - f.line) > 5) { out.push(line); continue; }
+      chosen = hits[0];
+    } else {
+      chosen = hits.reduce((best, h) =>
+        Math.abs(h - f.line) < Math.abs(best - f.line) ? h : best);
+    }
+
+    if (chosen === f.line) { out.push(line); continue; }
+
+    const m = line.match(FINDING_RE);
+    if (!m) { out.push(line); continue; }
+    const prefix = m[1];
+    const sev = m[2];
+    const pth = m[3];
+    const text = m[5];
+    out.push(`${prefix}[${sev}] ${pth}:${chosen} — ${text}`);
+  }
+  return out.join('\n');
+}
+
 // Fix E: re-read the cited file ±5 lines around each finding and verify the
 // finding's distinctive symbols actually appear there. If not in the window
 // but found exactly once elsewhere in the file, snap the line number. If
@@ -419,7 +474,9 @@ function verifyAndSnapFindings(raw, fileMap) {
 
 function postProcessFindings(raw, fileMap = {}, trace = null) {
   dumpFilterStage(trace, 'pre-e', { text: raw, findings: parseAllFindingLines(raw) });
-  const afterE = verifyAndSnapFindings(raw, fileMap);
+  const afterSnap = snapFindingLinesByGrep(raw, fileMap);
+  dumpFilterStage(trace, 'post-snap', { text: afterSnap, findings: parseAllFindingLines(afterSnap) });
+  const afterE = verifyAndSnapFindings(afterSnap, fileMap);
   dumpFilterStage(trace, 'post-e', { text: afterE, findings: parseAllFindingLines(afterE) });
   const afterD = dedupAndBreakLoop(afterE);
   dumpFilterStage(trace, 'post-d', { text: afterD, findings: parseAllFindingLines(afterD) });

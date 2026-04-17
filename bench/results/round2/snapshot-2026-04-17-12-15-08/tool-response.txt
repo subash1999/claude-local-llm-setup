@@ -1,0 +1,6 @@
+- [BLOCKER] `  9|` — SQL concatenation — injection risk (next line)
+- [BLOCKER] ` 14|` — weak hash (md5) for passwords (next body line)
+- [BLOCKER] ` 20|` — off-by-one — accepts count+1 items
+- [BLOCKER] ` 28|` — missing null check on optional chain result
+- [BLOCKER] ` 37|` — promise rejection silently swallowed
+- [BLOCKER] ` 41|` — hardcoded secret

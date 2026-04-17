@@ -1,0 +1,14 @@
+{
+  "run_ts_iso": "2026-04-17T12:13:35.895Z",
+  "mode": "planted-bugs",
+  "tool": "local_audit",
+  "wall_ms": 10053,
+  "call_args": {
+    "file_path": "/Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts",
+    "checklist": "SQL injection, weak password hashing (MD5), off-by-one loop bounds, null-safe access (optional chaining cast to non-null), empty catch swallowing errors, hardcoded secret keys (Stripe/other vendors)."
+  },
+  "jsonl_files": [
+    "local-llm-bridge-filters-1776428005843.jsonl"
+  ],
+  "tool_response_bytes": 806
+}
