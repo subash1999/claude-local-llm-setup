@@ -6,6 +6,8 @@
 // Usage:
 //   node scripts/semantic-index.mjs <repo-root>
 //   node scripts/semantic-index.mjs <repo-root> --rebuild
+//   node scripts/semantic-index.mjs <repo-root> --install-hook
+//   node scripts/semantic-index.mjs <repo-root> --rebuild --quiet   (for git hooks)
 //
 // Env:
 //   LOCAL_LLM_BASE  — preferred; e.g. http://your-mac.local:1234
@@ -53,7 +55,43 @@ const SKIP_DIR = new Set([
   'vendor','.idea','.vscode','.DS_Store','.parcel-cache','.svelte-kit',
 ]);
 
-function log(...a) { console.error('[index]', ...a); }
+let QUIET = false;
+function log(...a) { if (!QUIET) console.error('[index]', ...a); }
+
+// Git post-commit hook: rebuilds the index in the background after every commit.
+// Idempotent. Refuses to overwrite a user-authored hook — prints the line to add.
+async function installHook(absRoot) {
+  const gitDir = path.join(absRoot, '.git');
+  const st = await fs.stat(gitDir).catch(() => null);
+  if (!st?.isDirectory()) {
+    console.error(`${absRoot} is not a git repo (no .git directory).`);
+    process.exit(2);
+  }
+  const hookPath = path.join(gitDir, 'hooks', 'post-commit');
+  const scriptPath = path.resolve(process.argv[1]);
+  const marker = '# claude-local-llm-setup: semantic-index auto-rebuild';
+  const hookLine =
+    `(node ${JSON.stringify(scriptPath)} ${JSON.stringify(absRoot)} --rebuild --quiet >/dev/null 2>&1 &)`;
+  const existing = await fs.readFile(hookPath, 'utf8').catch(() => null);
+
+  if (existing?.includes(marker)) {
+    console.error(`hook already installed at ${hookPath}`);
+    return;
+  }
+  if (existing) {
+    console.error(`${hookPath} already exists. Append these two lines manually:`);
+    console.error(`  ${marker}`);
+    console.error(`  ${hookLine}`);
+    process.exit(1);
+  }
+
+  const body = `#!/bin/sh\n${marker}\n${hookLine}\n`;
+  await fs.mkdir(path.dirname(hookPath), { recursive: true });
+  await fs.writeFile(hookPath, body, { mode: 0o755 });
+  console.error(`installed post-commit hook: ${hookPath}`);
+  console.error('the index now rebuilds in the background after every commit.');
+  console.error('(uncommitted working-tree edits are still stale until a rebuild.)');
+}
 
 function wantFile(p) {
   const base = path.basename(p);
@@ -124,10 +162,17 @@ async function main() {
   const args = process.argv.slice(2);
   const root = args.find(a => !a.startsWith('--'));
   const rebuild = args.includes('--rebuild');
-  if (!root) { console.error('Usage: semantic-index.mjs <repo-root> [--rebuild]'); process.exit(2); }
+  const hookFlag = args.includes('--install-hook');
+  QUIET = args.includes('--quiet');
+  if (!root) {
+    console.error('Usage: semantic-index.mjs <repo-root> [--rebuild] [--install-hook] [--quiet]');
+    process.exit(2);
+  }
   const absRoot = path.resolve(root);
   const stat = await fs.stat(absRoot).catch(() => null);
   if (!stat?.isDirectory()) { console.error(`Not a directory: ${absRoot}`); process.exit(2); }
+
+  if (hookFlag) { await installHook(absRoot); return; }
 
   await fs.mkdir(INDEX_DIR, { recursive: true });
   const key = crypto.createHash('sha1').update(absRoot).digest('hex').slice(0, 16);
