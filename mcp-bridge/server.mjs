@@ -320,9 +320,14 @@ function indexKey(absRoot) {
 }
 
 async function loadIndex(absRoot) {
-  if (INDEX_CACHE.has(absRoot)) return INDEX_CACHE.get(absRoot);
   const key = indexKey(absRoot);
   const jsonl = path.join(INDEX_DIR, `${key}.jsonl`);
+  const st = await fs.stat(jsonl);
+  const jsonlMtimeMs = st.mtimeMs;
+
+  const cached = INDEX_CACHE.get(absRoot);
+  if (cached && cached.jsonlMtimeMs === jsonlMtimeMs) return cached;
+
   const data = await fs.readFile(jsonl, 'utf8');
   const chunks = [];
   for (const line of data.split('\n')) {
@@ -331,8 +336,43 @@ async function loadIndex(absRoot) {
     // Float32Array is ~4x smaller than boxed numbers and cosine is a tight loop.
     chunks.push({ path: o.path, start: o.start, end: o.end, text: o.text, e: Float32Array.from(o.e) });
   }
-  INDEX_CACHE.set(absRoot, chunks);
-  return chunks;
+  const entry = { chunks, jsonlMtimeMs, jsonlPath: jsonl };
+  INDEX_CACHE.set(absRoot, entry);
+  return entry;
+}
+
+// Staleness check. Compares JSONL mtime against newest mtime of git-tracked
+// files in <absRoot>. If any tracked file is newer, the index was built before
+// that file's last edit and search results may point at wrong line ranges.
+// Returns a warning string to prepend to the caller's output, or null if fresh.
+// Skipped silently if the root is not a git repo (hand-walking arbitrary dirs
+// per-query is too slow). Env SEMANTIC_INDEX_SKIP_FRESHNESS=1 opts out.
+async function checkIndexStale(absRoot, jsonlMtimeMs) {
+  if (process.env.SEMANTIC_INDEX_SKIP_FRESHNESS === '1') return null;
+  let files;
+  try {
+    const raw = execSync('git ls-files -z', {
+      cwd: absRoot, encoding: 'buffer', maxBuffer: 50 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    files = raw.toString('utf8').split('\0').filter(Boolean);
+  } catch {
+    return null; // not a git repo — skip check
+  }
+  let newestMs = 0;
+  let newestPath = '';
+  for (const rel of files) {
+    try {
+      const s = await fs.stat(path.join(absRoot, rel));
+      if (s.mtimeMs > newestMs) { newestMs = s.mtimeMs; newestPath = rel; }
+    } catch { /* deleted-but-not-committed; ignore */ }
+  }
+  if (newestMs > jsonlMtimeMs) {
+    const ageSec = Math.round((newestMs - jsonlMtimeMs) / 1000);
+    return `[STALE INDEX: ${newestPath} is ${ageSec}s newer than the index. ` +
+           `Results may point at wrong line ranges. ` +
+           `Rebuild: node scripts/semantic-index.mjs ${absRoot} --rebuild]`;
+  }
+  return null;
 }
 
 async function embedQuery(q) {
@@ -569,9 +609,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       case 'local_semantic_search': {
         const absRoot = path.resolve(a.root);
         const topK = Math.max(1, Math.min(50, a.top_k ?? 10));
-        let chunks;
+        let entry;
         try {
-          chunks = await loadIndex(absRoot);
+          entry = await loadIndex(absRoot);
         } catch (e) {
           if (e.code === 'ENOENT') {
             out = `No semantic index for ${absRoot}. Build it once with:\n` +
@@ -581,6 +621,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           }
           throw e;
         }
+        const { chunks, jsonlMtimeMs } = entry;
+        const staleWarning = await checkIndexStale(absRoot, jsonlMtimeMs);
         const qv = await embedQuery(a.query);
         const scored = new Array(chunks.length);
         for (let i = 0; i < chunks.length; i++) {
@@ -592,7 +634,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           const snippet = c.text.replace(/\s+/g, ' ').slice(0, 120);
           return `- [${s.toFixed(3)}] ${c.path}:${c.start}-${c.end} — ${snippet}`;
         });
-        out = `Top ${top.length} matches for: ${a.query}\n\n${top.join('\n')}`;
+        const header = staleWarning
+          ? `${staleWarning}\n\nTop ${top.length} matches for: ${a.query}`
+          : `Top ${top.length} matches for: ${a.query}`;
+        out = `${header}\n\n${top.join('\n')}`;
         break;
       }
 

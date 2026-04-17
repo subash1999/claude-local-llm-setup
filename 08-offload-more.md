@@ -83,6 +83,23 @@ client Mac where the LM Studio server lives on another host, the shell
 block written by `scripts/client.sh` already exports `HOME_LLM_URL`, so
 `node scripts/semantic-index.mjs` works with zero extra config.
 
+Staleness handling — the MCP bridge compares the JSONL's mtime against
+the newest git-tracked file in the repo root before every query. If any
+tracked file is newer, the bridge prepends a one-line warning to the
+results (`[STALE INDEX: <path> is <Ns> newer… Rebuild: …]`) and still
+returns the matches. To keep the index fresh automatically after every
+commit, install the post-commit hook:
+
+```bash
+node scripts/semantic-index.mjs /path/to/repo --install-hook
+```
+
+The hook runs `semantic-index.mjs … --rebuild --quiet` in the background
+after each commit. Uncommitted working-tree edits are still stale until
+the next rebuild — the bridge warning catches those. Set
+`SEMANTIC_INDEX_SKIP_FRESHNESS=1` in the MCP env to disable the check
+for very large repos where the per-query stat fan-out is too slow.
+
 Index location: `~/.claude/semantic-index/<sha1(abs-root)>.jsonl`.
 Storage: ~4 MB per 1000 chunks (768-dim f32 + text). Zero HEAVY model tokens
 on query — pure embedding cosine.
