@@ -359,6 +359,60 @@ function verifyAndSnapFindings(raw, fileMap) {
 function postProcessFindings(raw, fileMap = {}) {
   return dedupAndBreakLoop(verifyAndSnapFindings(raw, fileMap));
 }
+
+// Fix F (2026-04-17 bench BUG 2): structured JSON output for local_feature_audit
+// so we can deliver per-finding remediation text (the "local gives labels,
+// cloud gives patches" gap Leg F called out). Parse a JSON array of findings,
+// tolerating common shape errors: leading prose, trailing prose, fenced code
+// blocks. Returns null if nothing usable was extracted.
+function parseFindingsJson(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  // Strip code fences if present.
+  let s = raw.trim();
+  const fence = s.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+  if (fence) s = fence[1].trim();
+  // Find the first `[` and the matching `]`.
+  const i = s.indexOf('[');
+  const j = s.lastIndexOf(']');
+  if (i < 0 || j <= i) return null;
+  const slice = s.slice(i, j + 1);
+  let arr;
+  try {
+    arr = JSON.parse(slice);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(arr)) return null;
+  const out = [];
+  for (const o of arr) {
+    if (!o || typeof o !== 'object') continue;
+    const file = typeof o.file === 'string' ? o.file : null;
+    const line = Number.isInteger(o.line) ? o.line : parseInt(o.line, 10);
+    const severity = typeof o.severity === 'string' ? o.severity.toUpperCase() : null;
+    const problem = typeof o.problem === 'string' ? o.problem : null;
+    if (!file || !Number.isFinite(line) || !severity || !problem) continue;
+    out.push({
+      file,
+      line,
+      severity,
+      symbol: typeof o.symbol === 'string' ? o.symbol : '',
+      problem,
+      remediation: typeof o.remediation === 'string' ? o.remediation : '',
+    });
+  }
+  return out.length ? out : null;
+}
+
+// Render parsed JSON findings back to the markdown shape postProcessFindings
+// expects, folding remediation into the same line so dedup/verify work as-is.
+function renderFindingsMarkdown(findings) {
+  return findings
+    .map((f) => {
+      const tail = f.remediation ? ` | fix: ${f.remediation}` : '';
+      return `- [${f.severity}] ${f.file}:${f.line} — ${f.problem}${tail}`;
+    })
+    .join('\n');
+}
 function dedupAndBreakLoop(raw) {
   const lines = raw.split('\n');
   const out = [];
@@ -819,25 +873,58 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           fileMap[p] = trimmed;
           total += trimmed.length;
         }
-        const rawFeature = await askLocal(
-          `You audit feature implementations across multiple files as a single unit. Report concrete findings with file:line references. Be direct — no filler, no restating the spec. Each finding appears at most once.\n\n${LINE_NUMBER_HINT}`,
-          capText(
-            `FEATURE SPEC:\n${a.spec}\n\n` +
-            `Audit the files below AS A SET for:\n` +
-            `- correctness vs the spec (missing behavior, wrong behavior)\n` +
-            `- cross-file inconsistencies (mismatched types, contracts, names)\n` +
-            `- missing error paths and edge cases\n` +
-            `- missing or weak tests\n` +
-            `- architectural issues (misplaced logic, leaky abstractions)\n\n` +
-            `Output format:\n` +
-            `- [SEVERITY] path:line — finding (one line)\n` +
-            `Severities: BLOCKER / MAJOR / MINOR / NIT.\n` +
-            `Stop after last finding.\n\n` +
-            `FILES:\n\n${chunks.join('\n\n')}`,
-          ),
-          { caveman: false, penalties: 'structured', maxTokens: 2000 },
+        // Fix F (2026-04-17 bench BUG 2): require JSON output with an explicit
+        // `remediation` field, parse + validate server-side, retry once with
+        // a repair prompt if malformed, and fall back to markdown parsing on
+        // second failure so the client still gets something useful.
+        const featureSystem =
+          `You audit feature implementations across multiple files as a single unit. ` +
+          `Report concrete findings with remediation guidance. Be direct — no filler, no restating the spec. ` +
+          `Each finding appears at most once. Output ONLY a JSON array — no prose, no markdown fences.\n\n` +
+          LINE_NUMBER_HINT;
+        const featureBody = capText(
+          `FEATURE SPEC:\n${a.spec}\n\n` +
+          `Audit the files below AS A SET for:\n` +
+          `- correctness vs the spec (missing behavior, wrong behavior)\n` +
+          `- cross-file inconsistencies (mismatched types, contracts, names)\n` +
+          `- missing error paths and edge cases\n` +
+          `- missing or weak tests\n` +
+          `- architectural issues (misplaced logic, leaky abstractions)\n\n` +
+          `Output a JSON array of findings with EXACTLY this shape:\n` +
+          `[\n` +
+          `  {\n` +
+          `    "file": "absolute/path/from/header.ts",\n` +
+          `    "line": 42,\n` +
+          `    "severity": "BLOCKER" | "MAJOR" | "MINOR" | "NIT",\n` +
+          `    "symbol": "name of the function/class/variable at that line, or empty string",\n` +
+          `    "problem": "one sentence describing the issue",\n` +
+          `    "remediation": "one sentence describing how to fix it"\n` +
+          `  }\n` +
+          `]\n` +
+          `Rules: no prose outside the array, no markdown fences, stop after the closing \`]\`.\n\n` +
+          `FILES:\n\n${chunks.join('\n\n')}`,
         );
-        out = postProcessFindings(rawFeature, fileMap);
+        const rawFeature = await askLocal(featureSystem, featureBody, {
+          caveman: false, penalties: 'structured', maxTokens: 2500,
+        });
+        let parsed = parseFindingsJson(rawFeature);
+        if (!parsed) {
+          const repairBody =
+            `Your previous reply was not valid JSON. Output ONLY the JSON array ` +
+            `described above. No prose, no markdown fences. Start with \`[\` and ` +
+            `end with \`]\`.\n\nPrevious reply (for reference only):\n${rawFeature.slice(0, 2000)}`;
+          const repaired = await askLocal(featureSystem, repairBody, {
+            caveman: false, penalties: 'structured', maxTokens: 2500,
+          });
+          parsed = parseFindingsJson(repaired);
+          if (!parsed) {
+            // Last resort: treat the first reply as plain markdown findings.
+            console.error('[local-llm-bridge] feature_audit: JSON parse failed twice; falling back to markdown parse');
+            out = postProcessFindings(rawFeature, fileMap);
+            break;
+          }
+        }
+        out = postProcessFindings(renderFindingsMarkdown(parsed), fileMap);
         break;
       }
 
