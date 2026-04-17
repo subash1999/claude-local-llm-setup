@@ -236,6 +236,122 @@ const LINE_NUMBER_HINT =
   'Source lines are prefixed with a 4-wide line number and a pipe (e.g. `  42| const x = 1`). ' +
   'When you cite a location, use the EXACT number shown — do not count, do not guess.';
 
+// Fix D (2026-04-17 bench BUG 2): dedup + arithmetic-progression repetition
+// breaker for finding-style outputs. Leg A showed `local_feature_audit` emit
+// 28+ fabricated BLOCKERs at mechanical +5 line offsets past EOF on the same
+// symbol. Parse each "- [SEV] path:line — text" line, drop exact duplicates,
+// and collapse any run of >=5 same-(path, problem-signature) findings whose
+// line numbers form a strict arithmetic progression — replace with a single
+// WARN note. Non-finding lines (headers, VERDICT:) pass through unchanged.
+const FINDING_RE = /^(\s*[-*]\s*)\[([A-Z]+)\]\s+([^\s:]+):(\d+)\s*[—\-:]\s*(.+)$/;
+const FINDING_STOP_WORDS = new Set([
+  'the','a','an','is','are','was','were','be','been','to','of','in','on','at',
+  'for','and','or','not','no','does','do','did','has','have','had','with',
+  'from','by','as','if','it','this','that','these','those','but','so',
+]);
+function findingProblemSig(text) {
+  const tokens = text
+    .toLowerCase()
+    .replace(/[^a-z0-9_\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w && !FINDING_STOP_WORDS.has(w));
+  return tokens.slice(0, 4).join(' ');
+}
+function parseFindingLine(line) {
+  const m = line.match(FINDING_RE);
+  if (!m) return null;
+  return {
+    severity: m[2],
+    path: m[3],
+    line: parseInt(m[4], 10),
+    text: m[5].trim(),
+    sig: findingProblemSig(m[5]),
+  };
+}
+function dedupAndBreakLoop(raw) {
+  const lines = raw.split('\n');
+  const out = [];
+  const seen = new Set();                   // `${path}:${line}:${sig}` — exact-dedup key
+  let run = [];                             // same-(path,sig) consecutive findings
+  let runStartOutIdx = -1;                  // first run entry's index in `out`
+  // Active suppressions: once an AP loop is detected, keep eating any further
+  // finding that continues the same {path, sig, step} sequence. Without this,
+  // a 7-entry loop collapsed at item 5 would allow items 6 and 7 to leak.
+  const suppressions = [];                  // [{path, sig, step, last, suppressed}]
+  const warnings = [];
+
+  for (const line of lines) {
+    const f = parseFindingLine(line);
+    if (!f) {
+      out.push(line);
+      run = [];
+      runStartOutIdx = -1;
+      continue;
+    }
+    const key = `${f.path}:${f.line}:${f.sig}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    // Continuation of an already-detected AP loop — swallow.
+    const sup = suppressions.find(
+      (s) => s.path === f.path && s.sig === f.sig && f.line - s.last === s.step,
+    );
+    if (sup) {
+      sup.last = f.line;
+      sup.suppressed++;
+      run = [];
+      runStartOutIdx = -1;
+      continue;
+    }
+
+    if (run.length && run[0].path === f.path && run[0].sig === f.sig) {
+      run.push(f);
+    } else {
+      run = [f];
+      runStartOutIdx = out.length;
+    }
+
+    // Strict AP over the most recent 5 entries (step > 0, constant).
+    if (run.length >= 5) {
+      const tail = run.slice(-5);
+      const step = tail[1].line - tail[0].line;
+      const isAP =
+        step > 0 &&
+        tail.every((r, i) => i === 0 || r.line - tail[i - 1].line === step);
+      if (isAP) {
+        out.length = runStartOutIdx + 1;
+        suppressions.push({
+          path: f.path,
+          sig: f.sig,
+          step,
+          last: f.line,
+          suppressed: run.length - 1,
+          startLine: run[0].line,
+        });
+        run = [];
+        runStartOutIdx = -1;
+        continue;
+      }
+    }
+
+    out.push(line);
+  }
+
+  for (const s of suppressions) {
+    warnings.push(
+      `  [WARN] ${s.path} — repetition loop on pattern "${s.sig}" ` +
+        `at +${s.step}-line offsets after line ${s.startLine}; ` +
+        `${s.suppressed} subsequent findings suppressed. ` +
+        `Consider cloud fallback (rule 10).`,
+    );
+  }
+  if (warnings.length) {
+    out.push('');
+    out.push(...warnings);
+  }
+  return out.join('\n');
+}
+
 const TOOLS = [
   {
     name: 'local_capabilities',
@@ -523,25 +639,27 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       case 'local_audit': {
         const code = await fs.readFile(a.file_path, 'utf8');
         const numbered = numberLines(code);
-        out = await askLocal(
+        const raw = await askLocal(
           `You are a careful code auditor. Report concrete issues only. No filler. Each finding appears at most once.\n\n${LINE_NUMBER_HINT}`,
           `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
           `Output format:\n- [SEVERITY] path:line — finding (one line each)\n` +
           `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
           { caveman: false, penalties: 'structured', maxTokens: 1200 },
         );
+        out = dedupAndBreakLoop(raw);
         break;
       }
 
       case 'local_review': {
         const code = await fs.readFile(a.file_path, 'utf8');
         const numbered = numberLines(code);
-        out = await askLocal(
+        const raw = await askLocal(
           `You are an experienced code reviewer. Be direct. Approve or request changes with reasons. Each finding appears at most once.\n\n${LINE_NUMBER_HINT}`,
           `Review file per these instructions:\n\n${a.instructions}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
           `Output format:\nVERDICT: APPROVE | REQUEST CHANGES\nThen list findings:\n- [SEVERITY] path:line — finding`,
           { caveman: false, penalties: 'structured', maxTokens: 1500 },
         );
+        out = dedupAndBreakLoop(raw);
         break;
       }
 
@@ -608,7 +726,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           chunks.push(`=== ${p} ===\n${numberLines(trimmed)}`);
           total += trimmed.length;
         }
-        out = await askLocal(
+        const rawFeature = await askLocal(
           `You audit feature implementations across multiple files as a single unit. Report concrete findings with file:line references. Be direct — no filler, no restating the spec. Each finding appears at most once.\n\n${LINE_NUMBER_HINT}`,
           capText(
             `FEATURE SPEC:\n${a.spec}\n\n` +
@@ -626,6 +744,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           ),
           { caveman: false, penalties: 'structured', maxTokens: 2000 },
         );
+        out = dedupAndBreakLoop(rawFeature);
         break;
       }
 
@@ -640,7 +759,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           out = `No diff between ${a.ref_a} and ${a.ref_b}.`;
           break;
         }
-        out = await askLocal(
+        const rawDiff = await askLocal(
           'You are an experienced code reviewer. Read the diff carefully. Be direct: approve or request changes with concrete reasons. Reference file:line from the diff hunks. Each finding appears at most once.',
           capText(
             `Review this git diff per these instructions:\n\n${a.instructions}\n\n` +
@@ -652,6 +771,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           ),
           { caveman: false, penalties: 'structured', maxTokens: 2000 },
         );
+        out = dedupAndBreakLoop(rawDiff);
         break;
       }
 
@@ -724,13 +844,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       case 'local_deep_audit': {
         const code = await fs.readFile(a.file_path, 'utf8');
         const numbered = numberLines(code);
-        out = await askLocal(
+        const rawDeep = await askLocal(
           `You are a senior code auditor giving a second opinion. Assume a smaller model has already reviewed this file and missed or mis-classified something. Be direct: concrete issues only, each finding at most once, cite path:line. If you confirm the smaller model was right, say so and stop.\n\n${LINE_NUMBER_HINT}`,
           `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
           `Output format:\n- [SEVERITY] path:line — finding (one line each)\n` +
           `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
           { model: DEEP_MODEL, caveman: false, penalties: 'structured', maxTokens: 1800 },
         );
+        out = dedupAndBreakLoop(rawDeep);
         break;
       }
 
