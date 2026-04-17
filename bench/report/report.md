@@ -162,6 +162,17 @@ Opus additionally found 6 real issues both local models missed (`publishableKey 
 |  |  |  |  |  |  |  |
 |  |  |  |  |  |  |  |
 |  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
 
 **Summary:**
 - Max accepted input (HTTP 200 + 3/3 recall, no repeat): **0 actual prompt tokens**.
@@ -200,6 +211,10 @@ Opus additionally found 6 real issues both local models missed (`publishableKey 
 | qwen2.5-coder-7b-instruct | repetition-bait | 1313 | 0 | 1 | true | true |
 | qwen2.5-coder-7b-instruct | binary | 404 | 0 | 1 | true | true |
 | qwen2.5-coder-7b-instruct | huge | 5899 | 0 | 1 | true | true |
+| qwen2.5-coder-7b-instruct | empty | 2347 | 0 | 1 | true | true |
+| qwen2.5-coder-7b-instruct | repetition-bait | 1315 | 0 | 1 | true | true |
+| qwen2.5-coder-7b-instruct | binary | 407 | 0 | 1 | true | true |
+| qwen2.5-coder-7b-instruct | huge | 5953 | 0 | 1 | true | true |
 
 ---
 
@@ -211,10 +226,10 @@ Opus additionally found 6 real issues both local models missed (`publishableKey 
 | qwen2.5-coder-14b-instruct | short_audit | 10 | 2675 | 2891 | 2891 | 14.57 |
 | qwen2.5-coder-14b-instruct | mid_summarize | 10 | 7047 | 12925 | 12925 | 14.76 |
 | qwen2.5-coder-14b-instruct | long_analysis | 10 | 50043 | 51990 | 51990 | 15.97 |
-| qwen2.5-coder-7b-instruct | short_classify | 90 | 194 | 223 | 678 | 10.31 |
-| qwen2.5-coder-7b-instruct | short_audit | 90 | 3220 | 4575 | 16007 | 30.49 |
-| qwen2.5-coder-7b-instruct | mid_summarize | 90 | 5144 | 8144 | 8187 | 30.92 |
-| qwen2.5-coder-7b-instruct | long_analysis | 90 | 25052 | 25438 | 25700 | 31.89 |
+| qwen2.5-coder-7b-instruct | short_classify | 110 | 194 | 214 | 282 | 10.31 |
+| qwen2.5-coder-7b-instruct | short_audit | 110 | 3193 | 4575 | 6593 | 30.49 |
+| qwen2.5-coder-7b-instruct | mid_summarize | 110 | 5181 | 8137 | 8172 | 30.93 |
+| qwen2.5-coder-7b-instruct | long_analysis | 110 | 25054 | 25427 | 25511 | 31.89 |
 
 ---
 
@@ -226,6 +241,7 @@ Opus additionally found 6 real issues both local models missed (`publishableKey 
 | qwen2.5-coder-14b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
 | qwen2.5-coder-7b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
 | qwen2.5-coder-14b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
+| qwen2.5-coder-7b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
 | qwen2.5-coder-7b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
 | qwen2.5-coder-7b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
 | qwen2.5-coder-7b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |

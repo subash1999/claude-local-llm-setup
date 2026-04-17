@@ -3,7 +3,7 @@ qwen2.5-coder-14b-instruct,short_classify,10,323,651,651,6.41
 qwen2.5-coder-14b-instruct,short_audit,10,2675,2891,2891,14.57
 qwen2.5-coder-14b-instruct,mid_summarize,10,7047,12925,12925,14.76
 qwen2.5-coder-14b-instruct,long_analysis,10,50043,51990,51990,15.97
-qwen2.5-coder-7b-instruct,short_classify,90,194,223,678,10.31
-qwen2.5-coder-7b-instruct,short_audit,90,3220,4575,16007,30.49
-qwen2.5-coder-7b-instruct,mid_summarize,90,5144,8144,8187,30.92
-qwen2.5-coder-7b-instruct,long_analysis,90,25052,25438,25700,31.89
+qwen2.5-coder-7b-instruct,short_classify,110,194,214,282,10.31
+qwen2.5-coder-7b-instruct,short_audit,110,3193,4575,6593,30.49
+qwen2.5-coder-7b-instruct,mid_summarize,110,5181,8137,8172,30.93
+qwen2.5-coder-7b-instruct,long_analysis,110,25054,25427,25511,31.89

@@ -29,6 +29,14 @@ const DEEP_MODEL   = process.env.LOCAL_LLM_DEEP_MODEL  || 'qwen2.5-coder-14b-ins
 const EMBED_MODEL  = process.env.LOCAL_EMBED_MODEL     || 'text-embedding-nomic-embed-text-v1.5';
 const CAVEMAN_MODE = (process.env.CAVEMAN_MODE || 'on').toLowerCase() !== 'off';
 
+// Item 5 (round 2): opt-in auto-escalate. When `local_audit` returns < 2
+// findings on a file > 30 LOC, automatically re-run the 14B deep auditor
+// and union findings. Default off — the flag ~doubles cost on borderline
+// cases. Set to 1/on/true/yes to enable.
+const AUTO_ESCALATE_ON = new Set(['1', 'on', 'true', 'yes']).has(
+  (process.env.LOCAL_AUDIT_AUTO_ESCALATE || '').toLowerCase(),
+);
+
 // Semantic index dir — one JSONL per indexed repo root (sha1 of absolute path).
 const INDEX_DIR = process.env.SEMANTIC_INDEX_DIR || path.join(os.homedir(), '.claude', 'semantic-index');
 // Derive the embeddings URL from the chat-completions URL by swapping the path.
@@ -544,6 +552,67 @@ function renderFindingsMarkdown(findings) {
     })
     .join('\n');
 }
+
+// Item 5: one-shot deep-audit call used by local_audit's auto-escalate path.
+// Issues the same JSON-shaped prompt local_deep_audit uses, with one repair
+// retry. Returns an array of parsed findings, or [] on total failure —
+// escalation is best-effort; failure is logged, not propagated.
+async function runDeepAuditForEscalation(filePath, checklist, code, numbered, trace) {
+  const sys =
+    `You are a senior code auditor giving a second opinion. A smaller model ` +
+    `found 0 or 1 issues in this file — confirm or extend. Be direct. ` +
+    `Output ONLY a JSON array — no prose, no markdown fences.\n\n` +
+    LINE_NUMBER_HINT;
+  const body =
+    `Audit this file for: ${checklist}\n\nFILE: ${filePath}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
+    `Output a JSON array with EXACTLY this shape per entry:\n` +
+    `  {"file": "${filePath}", "line": 42, "severity": "BLOCKER"|"MAJOR"|"MINOR"|"NIT",\n` +
+    `   "symbol": "name or empty string", "problem": "one sentence", "remediation": "one sentence"}\n` +
+    `If the smaller model's audit was complete, output exactly \`[]\`.`;
+  const raw = await askLocal(sys, body, {
+    model: DEEP_MODEL, caveman: false, penalties: 'structured', maxTokens: 2000, trace,
+  });
+  let parsed = parseFindingsJson(raw);
+  dumpFilterStage(trace, 'escalate-json-first', { parsed, ok: Array.isArray(parsed) });
+  if (parsed) return parsed;
+  const emptyOk = /^\s*\[\s*\]\s*$/.test(raw.trim());
+  if (emptyOk) return [];
+  const repairBody =
+    `Your previous reply was not valid JSON. Output ONLY the JSON array. ` +
+    `Start with \`[\` and end with \`]\`. If nothing to add, output \`[]\`.\n\n` +
+    `Previous reply (for reference only):\n${raw.slice(0, 1500)}`;
+  const repaired = await askLocal(sys, repairBody, {
+    model: DEEP_MODEL, caveman: false, penalties: 'structured', maxTokens: 2000, trace,
+  });
+  parsed = parseFindingsJson(repaired);
+  const repairedEmpty = /^\s*\[\s*\]\s*$/.test(repaired.trim());
+  dumpFilterStage(trace, 'escalate-json-retry', { parsed, ok: Array.isArray(parsed) || repairedEmpty });
+  if (parsed) return parsed;
+  if (repairedEmpty) return [];
+  console.error('[local-llm-bridge] auto-escalate: deep JSON parse failed twice; abandoning escalation');
+  return [];
+}
+
+// Item 5: union 7B findings with 14B findings. Key is `${file}:${line}:${sig}`
+// where sig is the first 4 content-words. 14B-only findings get tagged
+// `(source: 14B)`. 7B findings get tagged `(source: 7B)` only when any
+// 14B finding survives the union — otherwise left clean so a cold output
+// doesn't scream "escalated" for no reason.
+function unionEscalatedFindings(base7B, extra14B) {
+  const key = (f) => `${f.file}:${f.line}:${findingProblemSig(f.problem)}`;
+  const seen = new Set(base7B.map(key));
+  const uniq14 = extra14B.filter((f) => !seen.has(key(f)));
+  if (uniq14.length === 0) return { findings: base7B, added: 0 };
+  const tagged7 = base7B.map((f) => ({
+    ...f,
+    problem: /\(source:/.test(f.problem) ? f.problem : `${f.problem} (source: 7B)`,
+  }));
+  const tagged14 = uniq14.map((f) => ({
+    ...f,
+    problem: /\(source:/.test(f.problem) ? f.problem : `${f.problem} (source: 14B)`,
+  }));
+  return { findings: [...tagged7, ...tagged14], added: uniq14.length };
+}
 function dedupAndBreakLoop(raw) {
   const lines = raw.split('\n');
   const out = [];
@@ -960,7 +1029,28 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             break;
           }
         }
-        out = postProcessFindings(renderFindingsMarkdown(parsedAudit), { [a.file_path]: code }, trace);
+        // Item 5: auto-escalate when the 7B pass looks thin on a non-trivial
+        // file. Flag off: byte-identical to pre-Item-5 behavior. Flag on:
+        // second 14B pass + union, tagging surviving-only findings per source.
+        let finalFindings = parsedAudit;
+        const loc = code.split('\n').length;
+        if (AUTO_ESCALATE_ON && parsedAudit.length < 2 && loc > 30) {
+          console.error(
+            `[local-llm-bridge] auto-escalate firing: local_audit got ${parsedAudit.length} finding(s) ` +
+            `on ${loc}-line file ${a.file_path}`,
+          );
+          const extra14B = await runDeepAuditForEscalation(a.file_path, a.checklist, code, numbered, trace);
+          const { findings: unioned, added } = unionEscalatedFindings(parsedAudit, extra14B);
+          dumpFilterStage(trace, 'post-escalate', {
+            base7b: parsedAudit.length, deep14b: extra14B.length, added_14b: added, total: unioned.length,
+          });
+          console.error(
+            `[local-llm-bridge] auto-escalate result: 7B=${parsedAudit.length} 14B=${extra14B.length} ` +
+            `added-from-14B=${added} total=${unioned.length}`,
+          );
+          finalFindings = unioned;
+        }
+        out = postProcessFindings(renderFindingsMarkdown(finalFindings), { [a.file_path]: code }, trace);
         break;
       }
 
