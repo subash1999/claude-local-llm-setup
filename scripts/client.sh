@@ -146,13 +146,29 @@ mkdir -p "$(dirname "$CLAUDE_MD")"
 touch "$CLAUDE_MD"
 
 if grep -qF "$POLICY_START" "$CLAUDE_MD"; then
-  say "Routing policy already in $CLAUDE_MD — refreshing the managed block"
-  # Replace the existing managed block in-place
+  say "Routing policy already in $CLAUDE_MD — refreshing the managed block (user-trust-map content preserved)"
+  # Replace the existing managed block in-place, preserving anything the user
+  # wrote between the inner `user-trust-map` sentinels (rule 7 trust-map).
   python3 - "$CLAUDE_MD" "$POLICY_START" "$POLICY_END" "$POLICY_BODY" <<'PY'
-import sys, pathlib
+import sys, pathlib, re
 p, start, end, body = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+user_start = "<!-- user-trust-map START (preserved across regen) -->"
+user_end = "<!-- user-trust-map END -->"
 t = pathlib.Path(p).read_text()
 i = t.index(start); j = t.index(end) + len(end)
+old_block = t[i:j]
+pattern = re.escape(user_start) + r"(.*?)" + re.escape(user_end)
+m = re.search(pattern, old_block, re.DOTALL)
+if m:
+    preserved = m.group(1)
+    # re.sub with a callable avoids backreference expansion in the replacement.
+    body = re.sub(
+        pattern,
+        lambda _m: user_start + preserved + user_end,
+        body,
+        count=1,
+        flags=re.DOTALL,
+    )
 new = t[:i] + start + "\n" + body + "\n" + end + t[j:]
 pathlib.Path(p).write_text(new)
 PY
