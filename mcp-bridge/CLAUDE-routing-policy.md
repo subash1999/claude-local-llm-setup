@@ -92,15 +92,15 @@ _User-maintained. Edits here survive reinstall. Fill after rule 7 quick-check. D
 |---|---|---|
 | `local_ask` (short ≤100 tok out) | 🟢 | 2026-04-17 bench: 5/5 classify labels, p50 211 ms on 7B / 323 ms on 14B |
 | `local_ask` (long-form >200 tok out) | 🟢 | 2026-04-17 bench: retry-backoff design coherent, no repeat; p50 25.4 s on 7B / 50.0 s on 14B |
-| `local_audit` | 🟢 | 2026-04-17 Leg E: 6/6 planted-bug recall P=R=1.0 on 7B + 14B. **Line numbers drift systematically (~4 lines on 7B, 1-3 on 14B). Re-locate symbol before applying. Output is symptom-labels only, no severity/remediation — if downstream needs actionable fixes, cloud it.** |
+| `local_audit` | 🟢 | 2026-04-17 Leg E: 6/6 planted-bug recall P=R=1.0 on 7B + 14B. Prior line-number drift (~4 lines on 7B, 1-3 on 14B) is addressed server-side by Fix G (line-numbered source, 2026-04-17 f6c8863) and Fix E line-snap (ba815d4). Re-bench pending. |
 | `local_summarize` | 🟢 | unchanged |
 | `local_find` | 🟢 | unchanged |
-| `local_review` | 🟢 | unchanged |
-| `local_diff_review` | 🟢 | unchanged |
+| `local_review` | 🟢 | Server-side Fix G + E/D active (2026-04-17 f6c8863, ba815d4, fc98bf4). |
+| `local_diff_review` | 🟢 | Server-side Fix D dedup + AP-loop-breaker active (2026-04-17 fc98bf4). |
 | `local_group_commits` | 🟢 | unchanged |
-| `local_feature_audit` | 🟡 partial | **2026-04-17 Leg A + Leg F (Opus oracle cross-check): 6-file output contains (a) 8 real BLOCKERs, (b) 2 invented BLOCKERs INSIDE the clean-looking block (use-me.ts:4 "null-safety gap" — guard exists L7-9; VerifyCodeScreen.tsx:24 "code.length<6 guard missing" — guard exists L55-58), (c) 28+ fabricated `handleResend` repeats at mechanical +5 line-offset past EOF.** Pathology is bridge prompt template / parser, not model (direct-call clean on adversarial + accuracy legs). Tracked for server-side fix (`bench/report/BUGFIX-HANDOFF.md`). **DO NOT trust the first-block findings blindly — spot-check each against source.** Cap ≤3 files per call; for prod-critical auth/payment features use cloud or split into per-file `local_deep_audit`. |
+| `local_feature_audit` | 🟡 partial → pending re-bench | **2026-04-17 server-side fixes shipped (c46c91e Fix C ≤3 file cap; fc98bf4 Fix D dedup + arithmetic-progression loop breaker; ba815d4 Fix E source cross-check snaps or drops findings whose symbols are absent from cited ±3 line window; 444d865 Fix F structured JSON output with per-finding remediation).** These directly target the Leg A pathology (8 real + 2 invented BLOCKERs in the "clean" block + 28 mechanical +5-offset past-EOF repeats). Promote to 🟢 only after re-running Leg A against this bridge produces clean output on the same 6-file Clerk fixture (split into 2× 3-file batches per Fix C). Until then keep treating ≥4-file requests as rejection-expected and spot-check findings against source for auth/payment audits. |
 | `local_semantic_search` | 🟢 | unchanged |
-| `local_deep_audit` (14B) | 🟢 | 2026-04-17 Leg E: 6/6 P=R=1.0, tighter line-number accuracy than 7B (drift 1-3 vs 7B 1-7). Serialize (safe=1). |
+| `local_deep_audit` (14B) | 🟢 | 2026-04-17 Leg E: 6/6 P=R=1.0, tighter line-number accuracy than 7B (drift 1-3 vs 7B 1-7). Fix G + E active on this tool too. Serialize (safe=1). |
 
 _Bench: `bench/report/report.md` · raw: `bench/results/*.csv` · open server-side bugs: `bench/report/BUGFIX-HANDOFF.md`._
 <!-- user-trust-map END -->
