@@ -24,6 +24,16 @@ if [ ! -f "$REPO_BRIDGE" ]; then
   exit 1
 fi
 
+# Node resolves modules using the REAL path of a script, not the symlink
+# path. So an installed bridge that is a symlink into this repo looks for
+# node_modules in the REPO's mcp-bridge/ dir, not in the installed dir.
+# Without this, the bridge crashes on startup with ERR_MODULE_NOT_FOUND
+# for '@modelcontextprotocol/sdk'. Install deps at the real path.
+if [ ! -d "$REPO_DIR/mcp-bridge/node_modules" ]; then
+  echo "Installing bridge deps at $REPO_DIR/mcp-bridge ..."
+  (cd "$REPO_DIR/mcp-bridge" && npm install)
+fi
+
 mkdir -p "$INSTALL_DIR"
 
 # Replace whatever is there with a symlink to the repo copy.
