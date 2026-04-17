@@ -28,14 +28,18 @@ MCP tools from `local-llm-bridge` → offload work to home Mac (Qwen2.5-Coder-7B
    - tool-heavy agentic work, tight iteration across many file edits
    - user says "deep", "careful", "really think", or names you directly
 
-4. **Escalate — abandon local result, redo on cloud.** Sanity-check local reply. Escalate if ANY hold:
+4. **Escalate — abandon local result, try DEEP (14B), then cloud.** Sanity-check local reply. Escalate if ANY hold:
    - Empty, truncated mid-sentence, incoherent.
    - Refuses, only restates prompt.
    - Cites files / funcs / lines / symbols that don't exist on spot-check.
    - Findings contradict each other or code verifiable in one Read.
-   - User pushback ("wrong", "missed X", "try again") → redo on cloud.
+   - User pushback ("wrong", "missed X", "try again") → redo on DEEP or cloud.
 
-   Escalating: do it yourself once, one-line why ("local referenced nonexistent function — redoing on cloud"). No loop back to local same task.
+   Escalation ladder:
+   - **4a. HEAVY (7B) → DEEP (14B)** for audit/review tasks: call `local_deep_audit` (or re-run the original tool with the deep tier if the bridge exposes one). 14B is ~8.3 GB JIT, first call ~8s, subsequent fast. Still $0 quota. Stop here if DEEP answer is sound.
+   - **4b. DEEP → cloud** if DEEP also produced a rule-4 failure. Do the cloud work yourself once, one-line why ("local + deep both missed the SQLi in getUser — redoing on cloud"). No loop back to local same task.
+
+   If DEEP is not available (14B not downloaded or trust-map 🔴 on `local_deep_audit`), skip 4a, go straight to cloud.
 
 5. **Built-in Claude Code subagents** (`Explore`, `code-reviewer`, `Plan`, `feature-dev:*`, `general-purpose`) cost quota. Spawn only when capability exceeds local tool. Plain file search / read-and-summarize / single-file audit / diff review / commit grouping → always local.
 
@@ -54,6 +58,17 @@ MCP tools from `local-llm-bridge` → offload work to home Mac (Qwen2.5-Coder-7B
      5. `local_audit` small file → no invented line numbers past EOF.
 
      Any repeat loop / hallucinated specific / crash → stay 🔴.
+
+8. **Concurrency caps — don't overload the server.** `local_capabilities` returns a `concurrency` map for every tool with `{ safe, ceiling, note }`. When parallelizing (per-issue swarm, audit-queue fan-out, Task-agent spawn), MUST respect `safe`. Temporary bursts up to `ceiling` are tolerated; above `ceiling` latency collapses.
+
+   Rules of thumb (defaults from 2026-04-17 probe on M3 Pro 18GB, PARALLEL=4):
+   - `local_ask` short classify (max_tokens ≤ 120): safe 8, ceiling 16.
+   - `local_audit` / `local_review` / `local_find` / `local_summarize` (single-file): safe 4, ceiling 4.
+   - `local_feature_audit` / `local_diff_review` / `local_group_commits` (multi-file): safe 2, ceiling 3.
+   - `local_semantic_search`: unlimited (no model inference).
+   - **`local_deep_audit` (14B): MUST serialize — safe 1, ceiling 1.** Peak resident RAM with 7B + 14B ≈ 15GB, near the wired limit. Two concurrent 14B calls = swap = latency cliff.
+
+   When `/insights` suggests a parallel pattern (e.g. "parallel agent swarm per issue"), the fan-out width is bounded by the slowest tool in the pipeline, not the fastest. One audit per worktree × 4 worktrees is safe; beyond that, queue.
 
 <!-- user-trust-map START (preserved across regen) -->
 _User-maintained. Edits here survive reinstall. Fill after rule 7 quick-check. Default: 🟢 until evidence demotes._

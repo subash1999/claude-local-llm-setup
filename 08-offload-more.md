@@ -88,26 +88,32 @@ Memory: ~3 GB at 4-bit. Total with 7B coder: ~9 GB — still comfortable.
 
 Install and wire up later when you actually hit a workflow that needs it.
 
-## Option C — an escalation tier for hard audits
+## Option C — escalation tier for hard audits — **SHIPPED (2026-04-17)**
 
-Rule 7 in `CLAUDE-routing-policy.md` is: *"if the local reply is empty,
-truncated, refuses, or references things that don't exist, escalate to
-cloud Claude."* Currently that's a binary — local fails → burn cloud
-quota.
+Rule 4 in `CLAUDE-routing-policy.md` now has a middle tier between HEAVY
+(7B) and cloud: if `local_audit` / `local_review` / `local_feature_audit`
+tripped rule 4, Claude calls `local_deep_audit` (14B) before burning
+cloud quota.
 
-A middle tier:
-1. Keep `qwen2.5-coder-14b-instruct` warm in LM Studio's JIT cache.
-2. Add a `local_deep_audit` tool that routes to the 14B.
-3. Modify the skill/router: on rule-7 hit, try the 14B *before* escalating
-   to cloud.
+Wired:
+1. `LOCAL_LLM_DEEP_MODEL=qwen2.5-coder-14b-instruct` env (default in bridge).
+2. New tool `local_deep_audit({ file_path, checklist })` in `mcp-bridge/server.mjs`.
+3. `local_capabilities` advertises the deep model + per-tool concurrency caps.
+4. Routing policy rule 4 updated to a 2-step ladder: HEAVY → DEEP → cloud.
 
-The 14B scored 56.2/60 in the bench (no loops, 0 dups). For cases where
-the 7B misses a finding, the 14B often catches it — without ever
-burning cloud quota.
+The 14B scored 56.2/60 in the bench (no loops, 0 dups). Measured first
+call (JIT load + inference): ~17s on a tiny file; subsequent calls within
+LM Studio's 1 h TTL are sub-5s.
 
-Memory: both coder models loaded = 4.3 + 8.3 = 12.6 GB + 2 GB KV ≈ 15 GB.
-Tight but viable. Test with `python3 scripts/find_parallel.py` before
-committing.
+Memory: 7B (4.3 GB, 131K ctx) + 14B (8.3 GB, 4K ctx JIT) = 12.6 GB
+resident. Headroom ~1.5 GB for KV before the 14 GB wired cap. **Must
+serialize** `local_deep_audit` — `local_capabilities.concurrency` advertises
+`safe: 1, ceiling: 1`.
+
+Raise 14B ctx only if you need multi-file deep audits; expect to
+unload/reload the 14B with `--context-length 32768` or higher, which
+costs extra KV RAM. For now default 4K is sized for single-file
+`local_deep_audit` use.
 
 ## Option D — new MCP tools for new task shapes
 
