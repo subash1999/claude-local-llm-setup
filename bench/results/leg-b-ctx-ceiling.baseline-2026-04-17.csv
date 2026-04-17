@@ -1,0 +1,13 @@
+model,target_tokens,actual_prompt_tokens,completion_tokens,http_status,wall_ms,recalled,has_repeat,max_repeat,anchor_repeat,response_len,error
+qwen2.5-coder-7b-instruct,4000,2551,99,200,11712,3,false,1,false,110,""
+qwen2.5-coder-7b-instruct,2000,1366,94,200,6844,3,false,1,false,110,""
+qwen2.5-coder-7b-instruct,4000,2554,102,200,9780,3,false,1,false,110,""
+qwen2.5-coder-7b-instruct,8000,4917,98,200,17211,3,false,1,false,110,""
+qwen2.5-coder-7b-instruct,16000,9652,97,200,32635,3,false,1,false,110,""
+qwen2.5-coder-7b-instruct,24000,14387,103,200,49633,3,false,1,false,110,""
+qwen2.5-coder-7b-instruct,32000,19116,100,200,68952,3,false,1,false,110,""
+qwen2.5-coder-7b-instruct,48000,28578,94,200,120074,3,false,1,false,110,""
+qwen2.5-coder-7b-instruct,64000,38038,93,200,167747,3,false,1,false,110,""
+qwen2.5-coder-7b-instruct,96000,-1,-1,400,199692,0,false,0,false,0,""
+qwen2.5-coder-7b-instruct,128000,-1,-1,400,6925,0,false,0,false,0,""
+qwen2.5-coder-7b-instruct,160000,-1,-1,400,878,0,false,0,false,0,""
