@@ -504,6 +504,18 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       }
 
       case 'local_feature_audit': {
+        // Fix C (2026-04-17 bench BUG 2): cap at 3 files server-side. Leg A
+        // showed loop pathology + invented findings when called with 6 real
+        // files; direct-call path clean at the same input. Force callers to
+        // split their request instead of silently degrading output quality.
+        if (Array.isArray(a.file_paths) && a.file_paths.length > 3) {
+          out = JSON.stringify({
+            ok: false,
+            reason: 'feature_audit limited to 3 files per call — split your request into ≤3-file batches and merge results',
+            file_count: a.file_paths.length,
+          }, null, 2);
+          break;
+        }
         // Read files sequentially so we can stop at the budget instead of
         // hammering disk for files we won't ship. Cap per-file at 200 KB so
         // a single huge file can't starve the rest of the set.
