@@ -65,7 +65,7 @@ RC_FILE="${ZDOTDIR:-$HOME}/.zshrc"
 
 BLOCK_START="# === claude-local-llm-setup (managed) ==="
 BLOCK_END="# === /claude-local-llm-setup ==="
-MODEL_ENV="${LOCAL_HEAVY_MODEL:-qwen3-coder-30b-a3b-instruct}"
+MODEL_ENV="${LOCAL_HEAVY_MODEL:-qwen2.5-coder-7b-instruct}"
 
 if grep -qF "$BLOCK_START" "$RC_FILE" 2>/dev/null; then
   say "Shell block already present in $RC_FILE — leaving as-is (edit by hand if server URL changed)"
@@ -122,7 +122,7 @@ say "Registering MCP server with Claude Code"
 claude mcp add local-llm-bridge \
   -s user \
   -e "LOCAL_LLM_URL=$BRIDGE_URL" \
-  -e "LOCAL_LLM_MODEL=${LOCAL_HEAVY_MODEL:-qwen3-coder-30b-a3b-instruct}" \
+  -e "LOCAL_LLM_MODEL=${LOCAL_HEAVY_MODEL:-qwen2.5-coder-7b-instruct}" \
   -e "CAVEMAN_MODE=${CAVEMAN_MODE:-on}" \
   -- node "$BRIDGE_DIR/server.mjs"
 

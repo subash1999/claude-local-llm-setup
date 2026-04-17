@@ -37,7 +37,7 @@ import urllib.error
 from dataclasses import dataclass, asdict
 
 URL = "http://127.0.0.1:1234/v1/chat/completions"
-HEAVY = "qwen3-coder-30b-a3b-instruct"
+HEAVY = "qwen2.5-coder-7b-instruct"
 LMS   = os.path.expanduser("~/.lmstudio/bin/lms")
 
 # Thresholds — tune if your machine has different headroom.

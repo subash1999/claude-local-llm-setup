@@ -20,7 +20,7 @@ if (!LOCAL_URL) {
   console.error('      --env LOCAL_LLM_URL=http://your-server.local:1234/v1/chat/completions');
   process.exit(1);
 }
-const HEAVY_MODEL  = process.env.LOCAL_LLM_MODEL  || 'qwen3-coder-30b-a3b-instruct';
+const HEAVY_MODEL  = process.env.LOCAL_LLM_MODEL  || 'qwen2.5-coder-7b-instruct';
 const CAVEMAN_MODE = (process.env.CAVEMAN_MODE || 'on').toLowerCase() !== 'off';
 
 // Inspired by JuliusBrussee/caveman — https://github.com/JuliusBrussee/caveman
@@ -46,7 +46,24 @@ function composeSystem(base, { caveman = CAVEMAN_MODE } = {}) {
   return caveman ? `${CAVEMAN_RULES}\n\n${base}` : base;
 }
 
-async function askLocal(system, user, { maxTokens = 4096, model = HEAVY_MODEL, temperature = 0.2, caveman = CAVEMAN_MODE } = {}) {
+// Strength levels for anti-loop penalties. 3-bit MoE (Qwen3-Coder) needs
+// aggressive values on structured outputs; default is fine for free prose.
+// Observed 2026-04-17: default penalties produced 50+ duplicate bullets on
+// audit prompts. 'structured' level tested clean on same inputs.
+const PENALTY_PROFILES = {
+  default:    { frequency_penalty: 0.3, presence_penalty: 0.0, repetition_penalty: 1.10 },
+  structured: { frequency_penalty: 1.0, presence_penalty: 0.5, repetition_penalty: 1.20 },
+};
+
+async function askLocal(system, user, {
+  maxTokens = 4096,
+  model = HEAVY_MODEL,
+  temperature = 0.2,
+  caveman = CAVEMAN_MODE,
+  penalties = 'default',
+  extraStop = [],
+} = {}) {
+  const p = PENALTY_PROFILES[penalties] || PENALTY_PROFILES.default;
   const r = await fetch(LOCAL_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -58,31 +75,53 @@ async function askLocal(system, user, { maxTokens = 4096, model = HEAVY_MODEL, t
       ],
       max_tokens: maxTokens,
       temperature,
-      // Anti-loop: Qwen3 + caveman fragments + low temp degenerates into
-      // duplicate bullet blocks when max_tokens budget overhangs the real
-      // answer. Penalty fields keep backend from re-emitting same n-grams.
-      // repetition_penalty = llama.cpp-native; frequency/presence =
-      // OpenAI-standard. Send both so any LM Studio version honors one.
       top_p: 0.9,
-      frequency_penalty: 0.3,
-      presence_penalty: 0,
-      repetition_penalty: 1.1,
-      // Belt-and-braces: if model starts emitting literal placeholder
-      // tokens from CAVEMAN_RULES examples ("[thing]", "[loop]", etc),
-      // cut it off immediately. Observed 2026-04-16 on short prompts —
-      // model degenerates into repeating the bracket template instead
-      // of the compressed answer.
-      stop: ['[thing]', '[action]', '[reason]', '[next step]', '[loop]', '[fix loop]'],
+      ...p,
+      // Stop tokens: bracket-placeholders from CAVEMAN_RULES examples (model
+      // occasionally echoes the shape hints verbatim), plus obvious loop
+      // signatures (4+ consecutive newlines — bullet-dup storms).
+      stop: ['[thing]', '[action]', '[reason]', '[next step]', '[loop]', '[fix loop]', '\n\n\n\n', ...extraStop],
     }),
   });
   if (!r.ok) throw new Error(`local server ${r.status}: ${await r.text()}`);
   const j = await r.json();
-  const raw = j.choices[0].message.content;
-  // Qwen3 emits <think>...</think> reasoning before the answer. Claude should only
-  // see the final answer — strip the think block. (Keep thinking ON for accuracy;
-  // we just don't forward the reasoning tokens upstream.)
-  const i = raw.lastIndexOf('</think>');
-  return (i >= 0 ? raw.slice(i + 8) : raw).trim();
+  const raw = j.choices[0].message.content ?? '';
+  return postProcess(stripThink(raw));
+}
+
+// Qwen3 emits <think>...</think> reasoning before the answer. Claude should
+// only see the final answer. Handle: no think block, closed block, unclosed
+// block (truncation mid-think).
+function stripThink(s) {
+  const close = s.lastIndexOf('</think>');
+  if (close >= 0) return s.slice(close + 8);
+  const open = s.indexOf('<think>');
+  if (open >= 0) return s.slice(0, open); // unclosed — drop the tail
+  return s;
+}
+
+// Safety net: if the model produced consecutive identical or near-identical
+// bullet lines (loop escape), collapse them. Still forwards the diagnostic so
+// Claude can notice and escalate (rule 4 of the routing policy).
+function postProcess(s) {
+  const lines = s.split('\n');
+  const out = [];
+  let lastBullet = null;
+  let dupRun = 0;
+  for (const line of lines) {
+    const isBullet = /^\s*(?:[-*\d]+[.)]?\s|\[)/.test(line);
+    const norm = line.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (isBullet && norm && norm === lastBullet) {
+      dupRun++;
+      if (dupRun === 1) out.push(`  [... ${dupRun} duplicate line(s) suppressed ...]`);
+      else out[out.length - 1] = `  [... ${dupRun + 1} duplicate line(s) suppressed ...]`;
+      continue;
+    }
+    dupRun = 0;
+    lastBullet = isBullet ? norm : null;
+    out.push(line);
+  }
+  return out.join('\n').trim();
 }
 
 const server = new Server(
@@ -108,7 +147,7 @@ const TOOLS = [
   },
   {
     name: 'local_ask',
-    description: 'Free-form prompt to the heavy local model (default Qwen3-Coder-30B-A3B). Use for bulk analysis, summaries, explanations, or anything that needs real reasoning but does not need premium Claude quality. Prefer local_audit/review/find/summarize when they fit — they are purpose-built. For prose/essay/docs output, set caveman=false. RETURNS the model\'s text response.',
+    description: 'Free-form prompt to the heavy local model (default Qwen2.5-Coder-7B-Instruct). Use for bulk analysis, summaries, explanations, or anything that needs real reasoning but does not need premium Claude quality. Prefer local_audit/review/find/summarize when they fit — they are purpose-built. For prose/essay/docs output, set caveman=false. RETURNS the model\'s text response.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -271,8 +310,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       case 'local_audit': {
         const code = await fs.readFile(a.file_path, 'utf8');
         out = await askLocal(
-          'You are a careful code auditor. Report concrete issues only. No filler.',
-          `Audit the following file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${code}\n\`\`\`\n\nReturn a list of findings with line numbers and severity.`,
+          'You are a careful code auditor. Report concrete issues only. No filler. Each finding appears at most once.',
+          `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${code}\n\`\`\`\n\n` +
+          `Output format:\n- [SEVERITY] path:line — finding (one line each)\n` +
+          `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
+          { caveman: false, penalties: 'structured', maxTokens: 1200 },
         );
         break;
       }
@@ -280,8 +322,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       case 'local_review': {
         const code = await fs.readFile(a.file_path, 'utf8');
         out = await askLocal(
-          'You are an experienced code reviewer. Be direct. Approve or request changes with reasons.',
-          `Review this file per these instructions:\n\n${a.instructions}\n\nFILE: ${a.file_path}\n\`\`\`\n${code}\n\`\`\``,
+          'You are an experienced code reviewer. Be direct. Approve or request changes with reasons. Each finding appears at most once.',
+          `Review file per these instructions:\n\n${a.instructions}\n\nFILE: ${a.file_path}\n\`\`\`\n${code}\n\`\`\`\n\n` +
+          `Output format:\nVERDICT: APPROVE | REQUEST CHANGES\nThen list findings:\n- [SEVERITY] path:line — finding`,
+          { caveman: false, penalties: 'structured', maxTokens: 1500 },
         );
         break;
       }
@@ -292,8 +336,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           { encoding: 'utf8' },
         );
         out = await askLocal(
-          'You rank candidate file paths for relevance. Return the most relevant paths first with one-line reasons.',
-          `Find files matching: ${a.description}\n\nCandidates (first 500 files in ${a.root}):\n${grep}`,
+          'You rank candidate file paths for relevance. Return most relevant first with one-line reasons. No duplicates.',
+          `Find files matching: ${a.description}\n\nCandidates (first 500 files in ${a.root}):\n${grep}\n\n` +
+          `Output format:\npath — one-line reason\nList at most 15 paths, best first.`,
+          { caveman: false, penalties: 'structured', maxTokens: 800 },
         );
         break;
       }
@@ -305,6 +351,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         out = await askLocal(
           'You produce concise, structured summaries. No filler.',
           capText(`Summarize the following files${a.focus ? ` focusing on ${a.focus}` : ''}:\n\n${chunks.join('\n\n')}`),
+          { maxTokens: 1500 },
         );
         break;
       }
@@ -335,7 +382,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           total += trimmed.length;
         }
         out = await askLocal(
-          'You audit feature implementations across multiple files as a single unit. Report concrete findings with file:line references. Be direct — no filler, no restating the spec.',
+          'You audit feature implementations across multiple files as a single unit. Report concrete findings with file:line references. Be direct — no filler, no restating the spec. Each finding appears at most once.',
           capText(
             `FEATURE SPEC:\n${a.spec}\n\n` +
             `Audit the files below AS A SET for:\n` +
@@ -346,9 +393,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             `- architectural issues (misplaced logic, leaky abstractions)\n\n` +
             `Output format:\n` +
             `- [SEVERITY] path:line — finding (one line)\n` +
-            `Severities: BLOCKER / MAJOR / MINOR / NIT.\n\n` +
+            `Severities: BLOCKER / MAJOR / MINOR / NIT.\n` +
+            `Stop after last finding.\n\n` +
             `FILES:\n\n${chunks.join('\n\n')}`,
           ),
+          { caveman: false, penalties: 'structured', maxTokens: 2000 },
         );
         break;
       }
@@ -365,14 +414,16 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           break;
         }
         out = await askLocal(
-          'You are an experienced code reviewer. Read the diff carefully. Be direct: approve or request changes with concrete reasons. Reference file:line from the diff hunks.',
+          'You are an experienced code reviewer. Read the diff carefully. Be direct: approve or request changes with concrete reasons. Reference file:line from the diff hunks. Each finding appears at most once.',
           capText(
             `Review this git diff per these instructions:\n\n${a.instructions}\n\n` +
             `Output format:\n` +
             `VERDICT: APPROVE | REQUEST CHANGES\n` +
-            `Then a list of findings:\n- [SEVERITY] path:line — finding\n\n` +
+            `Then a list of findings:\n- [SEVERITY] path:line — finding\n` +
+            `Stop after last finding.\n\n` +
             `DIFF (${a.ref_a}..${a.ref_b}):\n\`\`\`diff\n${diff}\n\`\`\``,
           ),
+          { caveman: false, penalties: 'structured', maxTokens: 2000 },
         );
         break;
       }
@@ -389,7 +440,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           break;
         }
         out = await askLocal(
-          'You cluster git commits into logical PR-sized groups by theme. Use Conventional Commits style for group titles (feat:, fix:, refactor:, chore:, docs:, test:). Be direct — no filler.',
+          'You cluster git commits into logical PR-sized groups by theme. Use Conventional Commits style for group titles (feat:, fix:, refactor:, chore:, docs:, test:). Be direct — no filler. Each commit appears in exactly one group.',
           capText(
             `Group these commits by theme/feature. For each group, output:\n` +
             `- suggested PR title (Conventional Commits style)\n` +
@@ -399,9 +450,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             `- don't force unrelated commits together\n` +
             `- if a commit is truly isolated, put it alone\n` +
             `- use a "Miscellaneous" bucket only as last resort\n` +
-            `- order groups by logical merge order (dependencies first)\n\n` +
+            `- order groups by logical merge order (dependencies first)\n` +
+            `- do NOT repeat groups. stop after last group.\n\n` +
             `COMMITS (${a.range}):\n\n${log}`,
           ),
+          { caveman: false, penalties: 'structured', maxTokens: 2000 },
         );
         break;
       }

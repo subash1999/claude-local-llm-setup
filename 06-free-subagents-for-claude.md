@@ -19,11 +19,11 @@ From Claude's perspective it's just calling tools. From yours, you're not burnin
 │                                  │        │                                   │
 │  Claude Code (cloud / Max 20x)   │        │  LM Studio server :1234           │
 │  ┌─────────────────────────────┐ │        │  ┌─ HEAVY ─────────────────────┐  │
-│  │ Main conversation           │ │        │  │ qwen3-coder-30b-a3b-instruct│  │
-│  │ (orchestrator — cloud)      │ │        │  │ 32K ctx · ~63 tok/s · 12 GB │  │
+│  │ Main conversation           │ │        │  │ qwen2.5-coder-7b-instruct   │  │
+│  │ (orchestrator — cloud)      │ │        │  │ 131K ctx · ~50 tok/s · 4 GB │  │
 │  └──────┬──────────────────────┘ │        │  └─────────────────────────────┘  │
 │         │ calls MCP tool         │        │                                   │
-│         ▼                        │  HTTP  │  ~13.4 GB resident / 18 GB        │
+│         ▼                        │  HTTP  │  ~6 GB resident / 18 GB           │
 │  ┌─────────────────────────────┐◄┼───────►│                                   │
 │  │ local-mcp-bridge            │ │        │  All local replies come back      │
 │  │ HEAVY tools (one model,     │ │        │  caveman-compressed (CAVEMAN_MODE)│
@@ -72,7 +72,7 @@ claude mcp add local-llm-bridge \
   --args "$HOME/.claude/mcp-servers/local-llm-bridge/server.mjs" \
   --scope user \
   --env LOCAL_LLM_URL=http://<your-server>.local:1234/v1/chat/completions \
-  --env LOCAL_LLM_MODEL=qwen3-coder-30b-a3b-instruct \
+  --env LOCAL_LLM_MODEL=qwen2.5-coder-7b-instruct \
   --env CAVEMAN_MODE=on
 ```
 
@@ -232,7 +232,7 @@ The bridge caps total input at 500 KB before sending to HEAVY (see `MAX_CONTEXT_
 ## Summary
 
 - **Main Claude session (cloud)** = orchestration, planning, hard reasoning = Max 20x quota
-- **All audit / review / feature-audit / diff-review / commit-grouping / find / summarize work** = HEAVY (Qwen3-Coder-30B-A3B) via MCP bridge = **free, no quota**
+- **All audit / review / feature-audit / diff-review / commit-grouping / find / summarize work** = HEAVY (Qwen2.5-Coder-7B-Instruct) via MCP bridge = **free, no quota**
 - **Caveman mode** compresses every local reply ~40–65% before Claude reads it = **free input-token cut**
 - **Custom skills** make the routing automatic — you don't have to remember to invoke local tools
 - **Optional client-side** [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) skill compresses Claude's own replies too

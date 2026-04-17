@@ -91,15 +91,15 @@ say "lms ready: $("$LMS" --version 2>&1 | head -1)"
 
 # --- 4. Models ------------------------------------------------------------
 
-HEAVY_REPO="mlx-community/Qwen3-Coder-30B-A3B-Instruct-3bit"
+HEAVY_REPO="mlx-community/Qwen2.5-Coder-7B-Instruct-4bit"
 
 have_model() { "$LMS" ls 2>/dev/null | grep -qi "$1"; }
 
 if [[ $SKIP_MODELS -eq 0 ]]; then
-  if have_model "qwen3-coder-30b-a3b"; then
+  if have_model "qwen2.5-coder-7b-instruct"; then
     say "HEAVY model already downloaded"
   else
-    say "Downloading HEAVY: $HEAVY_REPO (~13 GB, 5–15 min)"
+    say "Downloading HEAVY: $HEAVY_REPO (~4.3 GB, 2–5 min)"
     "$LMS" get "https://huggingface.co/$HEAVY_REPO" -y
   fi
 else
@@ -162,7 +162,7 @@ cat <<EOF
   Raw IP fallback:            http://${IP_FIRST:-<no LAN IP>}:1234
 
   Verify from this Mac:       curl http://${HOSTNAME_LOCAL}:1234/v1/models
-  Verify from client laptop:  same URL, must return qwen3-coder-30b-a3b-instruct
+  Verify from client laptop:  same URL, must return qwen2.5-coder-7b-instruct-instruct
 
   On the client laptop, run:
     git clone <this-repo> && cd claude-local-llm-setup

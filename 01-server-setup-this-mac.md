@@ -23,7 +23,7 @@ After first launch, enable in LM Studio preferences:
 - **Settings → Keep models loaded in memory** = ON
 - **Settings → JIT models auto-evict** = ON (recommended — unloads previous model if you switch)
 
-## Step 2 — Download Qwen3-Coder-30B-A3B (MLX 3-bit)
+## Step 2 — Download Qwen2.5-Coder-7B-Instruct (MLX 4-bit)
 
 **Why 3-bit, not 4-bit?** Measured sizes on Apr 15, 2026:
 - MLX 4-bit = **16.0 GB** weights → won't fit 18 GB Mac with any meaningful KV cache
@@ -34,7 +34,7 @@ For MoE models with only 3.3 B active params, 3-bit quality loss is minor (unlik
 ```bash
 # ~13.4 GB download (weights + tokenizer), 5–15 min depending on network.
 # lms get resolves HuggingFace URLs directly:
-lms get "https://huggingface.co/mlx-community/Qwen3-Coder-30B-A3B-Instruct-3bit" -y
+lms get "https://huggingface.co/mlx-community/Qwen2.5-Coder-7B-Instruct-4bit" -y
 
 # Verify
 lms ls | grep -i qwen3-coder
@@ -67,18 +67,18 @@ lms server start --bind 0.0.0.0 --port 1234 --cors
 Load HEAVY with the empirically-measured optimal flags:
 ```bash
 # parallel=2 lets Claude issue 2 concurrent tool calls cleanly
-lms load qwen3-coder-30b-a3b-instruct --context-length 32768 --gpu max --parallel 2 -y
+lms load qwen2.5-coder-7b-instruct --context-length 131072 --gpu max --parallel 2 -y
 ```
 
-**Why these numbers (measured 2026-04-15 on this exact machine):**
-- `parallel=2`: matches Claude's typical concurrent tool-call burst. parallel=4 triggered a timeout-storm on 18 GB; parallel=1 was surprisingly worse on swap (macOS paging quirk at single-stream).
-- `ctx=32768`: tested viable. KV is demand-allocated in MLX, so dropping to 24K/16K saves negligible RAM and just caps what you can audit in one call.
-- Resident after warmup: ~13.4 GB weights + KV cache → settles to ~100 MB steady swap. Safe.
+**Why these numbers (updated 2026-04-17 after 9-model bench):**
+- `parallel=2`: matches Claude's typical concurrent tool-call burst.
+- `ctx=131072`: 7B at 4-bit has plenty of headroom on 18 GB; 128K context means a whole feature audit can bundle into one call.
+- Resident after warmup: ~4.3 GB weights + ~2 GB KV cache → ~6 GB used. ~8 GB free for a parallel companion model or further headroom.
 
 Verify:
 ```bash
 lms ps
-# Should list qwen3-coder-30b-a3b-instruct with CONTEXT=32768 PARALLEL=2.
+# Should list qwen2.5-coder-7b-instruct with CONTEXT=131072 PARALLEL=2.
 ```
 
 ### Re-measuring on different hardware
@@ -103,7 +103,7 @@ The probe writes `scripts/recommended-load.sh` with the exact `lms load` command
 From the **other laptop**:
 ```bash
 curl http://$(scutil --get LocalHostName).local:1234/v1/models
-# Should return JSON with qwen3-coder-30b-a3b-instruct.
+# Should return JSON with qwen2.5-coder-7b-instruct.
 # The hostname resolves via Bonjour/mDNS so router DHCP changes don't break you.
 # Fallback if mDNS fails (VPN, guest networks): curl http://$(ipconfig getifaddr en0):1234/v1/models
 ```
@@ -216,7 +216,7 @@ vm_stat | head     # Pages free should be > 30000 pages (~500 MB min)
 ## Troubleshooting
 
 **Model fails to load / crashes:**
-- Drop context length: `lms load qwen3-coder-30b-a3b-instruct --context-length 16384`
+- Drop context length: `lms load qwen2.5-coder-7b-instruct --context-length 16384`
 - Switch to the fallback model: see `04-fallback-gpt-oss-20b.md`
 
 **Server unreachable from other laptop:**

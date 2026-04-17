@@ -1,5 +1,12 @@
 # Research Notes & Sources
 
+> **⚠ Historical — superseded 2026-04-17.** This doc reflects the original
+> Apr-15 model choice (Qwen3-Coder-30B-A3B). After a 9-model head-to-head
+> bench on Apr-17 the default changed to **Qwen2.5-Coder-7B-Instruct** (the
+> 30B loops on structured output). See `04-fallback-gpt-oss-20b.md` for the
+> new scorecard and `scripts/bench/` for the reproducible code. Kept here
+> as an audit trail of the v1 decision.
+
 ## Hardware baseline — this Mac
 
 - Apple M3 Pro, 12 cores, **18 GB unified memory**

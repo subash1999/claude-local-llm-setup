@@ -1,0 +1,1173 @@
+{
+  "deepseek-r1-distill-qwen-14b": [
+    {
+      "name": "F1-audit-auth",
+      "weight": 3,
+      "dt": 38.731,
+      "in": 345,
+      "out": 570,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "catches_getuser_sqli": true,
+        "catches_deleteuser_sqli": true,
+        "catches_deleteuser_noauth": true,
+        "avoids_updateuser_false_positive": true
+      },
+      "checks_pass": 4,
+      "checks_total": 4,
+      "score": 5,
+      "weighted_score": 15,
+      "text": "MAJOR auth.js:12 - SQL injection vulnerability in getUser() function where id is directly inserted into the query without proper parameterization.\n\nMINOR auth.js:20 - updateUser() lacks validation to check if the user exists before attempting an update.\n\nMINOR auth.js:27 - deleteUser() does not verify if the user exists before proceeding with deletion.\n\nMAJOR auth.js:12 - SQL injection vulnerability in getUser() function where id is directly inserted into the query without proper parameterization."
+    },
+    {
+      "name": "F2-summarize-ratelimiter",
+      "weight": 2,
+      "dt": 30.581,
+      "in": 187,
+      "out": 469,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 14,
+      "checks": {
+        "mentions_sliding_window": true,
+        "mentions_max_req_or_100": true,
+        "mentions_allow_api": true,
+        "mentions_remaining_api": true,
+        "mentions_reset_api": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "**Summary of rate-limiter.js**\n\n- **Constants**:  \n  - `WINDOW_MS`: Time window in milliseconds (60,000 ms = 1 minute).  \n  - `MAX_REQ`: Maximum allowed requests per window (100).\n\n- **Public API**:  \n  - `allow(key)`:\n    - Adds a timestamp for the given key if it hasn't exceeded `MAX_REQ` requests in the last `WINDOW_MS`.  \n    - Returns `true` if allowed, `false` otherwise.  \n  - `remaining(key)`:\n    - Returns the number of remaining allowed requests for the key, capped at 0.  \n  - `reset(key)`:\n    - Clears all timestamps for the given key, resetting its request count.\n\n- **Behavior**:  \n  - Uses a sliding window approach to track requests for each key.  \n  - Automatically removes outdated timestamps older than `WINDOW_MS`."
+    },
+    {
+      "name": "F3-classify-sqli",
+      "weight": 1,
+      "dt": 12.818,
+      "in": 49,
+      "out": 199,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "one_word_answer": false,
+        "correct_yes": false
+      },
+      "checks_pass": 0,
+      "checks_total": 2,
+      "score": 0,
+      "weighted_score": 0,
+      "text": ""
+    },
+    {
+      "name": "F4-group-commits",
+      "weight": 2,
+      "dt": 132.572,
+      "in": 561,
+      "out": 1999,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 24,
+      "checks": {
+        "at_least_3_groups": true,
+        "at_most_10_groups": true,
+        "no_miscellaneous": true,
+        "mentions_auth_group": true,
+        "mentions_billing_group": true,
+        "mentions_ui_group": true,
+        "mentions_deps_group": true
+      },
+      "checks_pass": 7,
+      "checks_total": 7,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "## Auth\n- a1b2c3d feat(auth): add JWT middleware\n- d4e5f6a fix(auth): handle missing authorization header\n- b7c8d9e test(auth): add JWT verify unit tests\n- f0a1b2c refactor(auth): extract token parser\n- 3d4e5f6 feat(auth): support refresh tokens\n\n## Billing\n- 7a8b9c0 fix(billing): correct tax calculation for EU\n- d1e2f3a feat(billing): add stripe webhook handler\n- b4c5d6e test(billing): stripe webhook signature\n- f7a8b9c docs(billing): explain webhook retry policy\n- 1c2d3e4 fix(billing): idempotency key on double-charge\n\n## UI\n- 5f6a7b8 feat(ui): dark mode toggle in header\n- 9c0d1e2 style(ui): tune dark mode colors\n- 3f4a5b6 fix(ui): sidebar shift on dark-mode toggle\n- 7c8d9e0 feat(ui): keyboard shortcut for dark mode\n\n## Dependency Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4\n\n## CI Improvements\n- 3e4f5a6 chore(ci): cache node_modules in CI\n- 7b8c9d0 chore(ci): add lint step to pull-request workflow\n\n## Performance Improvements\n- 1f2a3b4 perf(db): add index on users.email\n- 5c6d7e8 perf(db): batch inserts in audit log\n\n## Database Fixes\n- 9e0f1a2 fix(db): connection pool leak on timeout\n\n## Documentation Updates\n- 3a4b5c6 docs(readme): update install instructions\n- 7d8e9f0"
+    },
+    {
+      "name": "F5-feature-audit",
+      "weight": 3,
+      "dt": 37.243,
+      "in": 539,
+      "out": 540,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 6,
+      "checks": {
+        "catches_missing_auth": true,
+        "catches_missing_404": true,
+        "catches_missing_validation": true,
+        "catches_missing_idempotency": true,
+        "references_handler_or_service": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 15,
+      "text": "- BLOCKER handlers/order.js: Missing auth checks in both POST and GET handlers\n- MAJOR services/order.js: createOrder doesn't return 'status' in response\n- MAJOR handlers/order.js: GET handler doesn't return 404 for missing orders\n- MINOR services/order.js: POST body validation (items length >=1) not enforced\n- MINOR handlers/order.js: Idempotency key header not implemented\n- NIT tests/order.test.js: Missing test coverage for 404 response in GET handler"
+    },
+    {
+      "name": "F6-find-auth",
+      "weight": 1,
+      "dt": 52.358,
+      "in": 341,
+      "out": 799,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 5,
+      "checks": {
+        "has_list": true,
+        "at_most_10": true,
+        "mentions_routing_policy": true,
+        "mentions_bridge_or_server_mjs": true,
+        "top1_is_auth_relevant": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 5,
+      "text": "- mcp-bridge/CLAUDE-routing-policy.md \u2014 Directly discusses routing policies, which is a key part of the task.\n- mcp-bridge/server.mjs \u2014 Implements authentication logic as it's a server handling connections and tools.\n- tests/bench_fixtures/auth.js \u2014 Provides test cases for authentication, relevant but more in a testing context.\n- tests/bench_fixtures/rate-limiter.js \u2014 Relates to rate limiting, a component of routing policies.\n- docs/02-routing-policy.md \u2014 Explains the rationale behind routing policies, supporting the main policy file.\n\nThese files are ranked based on their direct relevance to authentication"
+    }
+  ],
+  "openai/gpt-oss-20b": [
+    {
+      "name": "F1-audit-auth",
+      "weight": 3,
+      "dt": 28.089,
+      "in": 409,
+      "out": 738,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 7,
+      "checks": {
+        "catches_getuser_sqli": true,
+        "catches_deleteuser_sqli": true,
+        "catches_deleteuser_noauth": false,
+        "avoids_updateuser_false_positive": true
+      },
+      "checks_pass": 3,
+      "checks_total": 4,
+      "score": 3.75,
+      "weighted_score": 11.25,
+      "text": "[BLOCKER] auth.js:14 \u2014 SQL injection risk: user ID concatenated into query string.  \n[BLOCKER] auth.js:29 \u2014 SQL injection risk: user ID concatenated into query string.  \n[MAJOR] auth.js:12 \u2014 getUser lacks authentication/authorization check.  \n[MAJOR] auth.js:19 \u2014 updateUser lacks authentication/authorization check.  \n[MAJOR] auth.js:27 \u2014 deleteUser lacks authentication/authorization check.  \n[NIT] auth.js:7 \u2014 `next()` is called but the middleware parameter is missing from function signature.  \n[NIT] auth.js:29 \u2014 deleteUser does not provide a callback to handle query errors."
+    },
+    {
+      "name": "F2-summarize-ratelimiter",
+      "weight": 2,
+      "dt": 7.946,
+      "in": 249,
+      "out": 305,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 6,
+      "checks": {
+        "mentions_sliding_window": true,
+        "mentions_max_req_or_100": true,
+        "mentions_allow_api": true,
+        "mentions_remaining_api": true,
+        "mentions_reset_api": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "**File:** `rate-limiter.js`  \n**Purpose:** Sliding\u2011window rate limiter.\n\n### Public API\n| Function | Parameters | Return value | Description |\n|----------|------------|--------------|-------------|\n| `allow(key)` | `key` (string) | `boolean` | Checks if a request for the given key is allowed. Returns `true` if under limit, otherwise `false`. Updates internal bucket with current timestamp when allowed. |\n| `remaining(key)` | `key` (string) | `number` | Returns the number of remaining requests allowed in the current window for that key. |\n| `reset(key)` | `key` (string) | \u2013 | Clears all stored timestamps for the key, resetting its rate limit. |\n\n### Behavior\n- **Window:** 60\u202f000\u202fms (1 minute).  \n- **Limit:** 100 requests per window.  \n- Maintains a timestamp array per key in `buckets`.  \n- On each call to `allow`, timestamps older than the window are removed. If the array length is \u2265\u202f100, request denied; otherwise timestamp added and request allowed.  \n- `remaining` calculates remaining quota by subtracting current count from the maximum.  \n- `reset` deletes the key\u2019s bucket, effectively resetting its counter.\n\nThe module uses a simple in\u2011memory map; no persistence or concurrency handling beyond single\u2011process execution."
+    },
+    {
+      "name": "F3-classify-sqli",
+      "weight": 1,
+      "dt": 1.504,
+      "in": 118,
+      "out": 41,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "one_word_answer": true,
+        "correct_yes": true
+      },
+      "checks_pass": 2,
+      "checks_total": 2,
+      "score": 5,
+      "weighted_score": 5,
+      "text": "YES"
+    },
+    {
+      "name": "F4-group-commits",
+      "weight": 2,
+      "dt": 15.776,
+      "in": 624,
+      "out": 612,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 29,
+      "checks": {
+        "at_least_3_groups": true,
+        "at_most_10_groups": true,
+        "no_miscellaneous": true,
+        "mentions_auth_group": true,
+        "mentions_billing_group": true,
+        "mentions_ui_group": true,
+        "mentions_deps_group": true
+      },
+      "checks_pass": 7,
+      "checks_total": 7,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "## Auth\n- a1b2c3d feat(auth): add JWT middleware  \n- d4e5f6a fix(auth): handle missing authorization header  \n- b7c8d9e test(auth): add JWT verify unit tests  \n- f0a1b2c refactor(auth): extract token parser  \n- 3d4e5f6 feat(auth): support refresh tokens  \n\n## Billing\n- 7a8b9c0 fix(billing): correct tax calculation for EU  \n- d1e2f3a feat(billing): add stripe webhook handler  \n- b4c5d6e test(billing): stripe webhook signature  \n- f7a8b9c docs(billing): explain webhook retry policy  \n- 1c2d3e4 fix(billing): idempotency key on double-charge  \n\n## UI\n- 5f6a7b8 feat(ui): dark mode toggle in header  \n- 9c0d1e2 style(ui): tune dark mode colors  \n- 3f4a5b6 fix(ui): sidebar shift on dark-mode toggle  \n- 7c8d9e0 feat(ui): keyboard shortcut for dark mode  \n\n## Dependencies\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3  \n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2  \n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4  \n\n## CI\n- 3e4f5a6 chore(ci): cache node_modules in CI  \n- 7b8c9d0 chore(ci): add lint step to pull-request workflow  \n\n## Database Performance\n- 1f2a3b4 perf(db): add index on users.email  \n- 5c6d7e8 perf(db): batch inserts in audit log  \n- 9e0f1a2 fix(db): connection pool leak on timeout  \n\n## Documentation\n- 3a4b5c6 docs(readme): update install instructions  \n- 7d8e9f0 docs(contrib): add CONTRIBUTING.md  \n\n## Search\n- 1b2c3d4 fix(search): escape regex metachars in query  \n- 5e6f7a8 feat(search): fuzzy matching option  \n\n## API\n- 9b0c1d2 fix(api): 429 response missing Retry-After header  \n- 3c4d5e6 feat(api): add rate-limit headers to all responses  \n- 7f8a9b0 test(api): rate-limit header integration test"
+    },
+    {
+      "name": "F5-feature-audit",
+      "weight": 3,
+      "dt": 6.616,
+      "in": 611,
+      "out": 226,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 7,
+      "checks": {
+        "catches_missing_auth": false,
+        "catches_missing_404": true,
+        "catches_missing_validation": true,
+        "catches_missing_idempotency": true,
+        "references_handler_or_service": true
+      },
+      "checks_pass": 4,
+      "checks_total": 5,
+      "score": 4,
+      "weighted_score": 12,
+      "text": "- [BLOCKER] handlers/order.js:3 \u2014 POST /orders does not enforce authentication.\n- [BLOCKER] handlers/order.js:6 \u2014 GET /orders/:id does not return 404 when order is missing.\n- [MAJOR] services/order.js:5 \u2014 createOrder returns only {id, total} but spec requires {id, total, status}.\n- [MAJOR] services/order.js:5 \u2014 createOrder does not validate that items array length >= 1.\n- [MAJOR] handlers/order.js:3 \u2014 POST /orders does not honor Idempotency-Key header.\n- [MINOR] services/order.js:5 \u2014 createOrder does not check for missing userId or items fields.\n- [NIT] tests/order.test.js:10 \u2014 test for getOrder returns null but handler does not handle this case."
+    },
+    {
+      "name": "F6-find-auth",
+      "weight": 1,
+      "dt": 5.193,
+      "in": 401,
+      "out": 180,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "has_list": false,
+        "at_most_10": true,
+        "mentions_routing_policy": true,
+        "mentions_bridge_or_server_mjs": true,
+        "top1_is_auth_relevant": false
+      },
+      "checks_pass": 3,
+      "checks_total": 5,
+      "score": 3,
+      "weighted_score": 3,
+      "text": "mcp-bridge/server.mjs \u2014 contains the main server logic, including request authentication checks and routing decisions.  \nmcp-bridge/CLAUDE-routing-policy.md \u2014 explicit routing rules used by the bridge, detailing how requests are directed.  \ndocs/02-routing-policy.md \u2014 rationale and design of the routing policy, explaining authentication considerations.  \ntests/bench_fixtures/auth.js \u2014 test fixture that exercises the authentication logic used by the server.  \ndocs/01-architecture.md \u2014 overview of the bridge architecture, including authentication and routing components."
+    }
+  ],
+  "phi-4": [
+    {
+      "name": "F1-audit-auth",
+      "weight": 3,
+      "dt": 11.13,
+      "in": 343,
+      "out": 128,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 3,
+      "checks": {
+        "catches_getuser_sqli": true,
+        "catches_deleteuser_sqli": true,
+        "catches_deleteuser_noauth": true,
+        "avoids_updateuser_false_positive": true
+      },
+      "checks_pass": 4,
+      "checks_total": 4,
+      "score": 5,
+      "weighted_score": 15,
+      "text": "- [BLOCKER] auth.js:14 \u2014 SQL injection vulnerability in `getUser` function due to direct concatenation of user input (`id`) into the SQL query.\n- [BLOCKER] auth.js:23 \u2014 SQL injection vulnerability in `deleteUser` function due to direct concatenation of user input (`id`) into the SQL query.\n- [MAJOR] auth.js:7 \u2014 Missing authentication check after `jwt.verify` in `authenticateUser` function. The `next()` call should be replaced with a proper middleware chain continuation, such as `next();` or returning the response directly if no further processing is needed."
+    },
+    {
+      "name": "F2-summarize-ratelimiter",
+      "weight": 2,
+      "dt": 4.558,
+      "in": 188,
+      "out": 53,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "mentions_sliding_window": false,
+        "mentions_max_req_or_100": false,
+        "mentions_allow_api": false,
+        "mentions_remaining_api": false,
+        "mentions_reset_api": false
+      },
+      "checks_pass": 0,
+      "checks_total": 5,
+      "score": 0,
+      "weighted_score": 0,
+      "text": "To provide a concise summary, I'll need to know the specific content or topic of the file you're referring to. Could you please provide more details about the document, such as its main subject or key points? This will help me generate a focused summary."
+    },
+    {
+      "name": "F3-classify-sqli",
+      "weight": 1,
+      "dt": 0.62,
+      "in": 55,
+      "out": 2,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "one_word_answer": true,
+        "correct_yes": true
+      },
+      "checks_pass": 2,
+      "checks_total": 2,
+      "score": 5,
+      "weighted_score": 5,
+      "text": "YES"
+    },
+    {
+      "name": "F4-group-commits",
+      "weight": 2,
+      "dt": 16.79,
+      "in": 561,
+      "out": 211,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 3,
+      "checks": {
+        "at_least_3_groups": false,
+        "at_most_10_groups": true,
+        "no_miscellaneous": true,
+        "mentions_auth_group": false,
+        "mentions_billing_group": false,
+        "mentions_ui_group": false,
+        "mentions_deps_group": false
+      },
+      "checks_pass": 2,
+      "checks_total": 7,
+      "score": 1.4285714285714284,
+      "weighted_score": 2.8571428571428568,
+      "text": "To calculate the total amount of money you will have after 5 years with an initial investment of $1,000 at a simple interest rate of 3% per annum, you can use the formula for simple interest:\n\n\\[ \\text{Simple Interest (SI)} = P \\times r \\times t \\]\n\nwhere:\n- \\( P \\) is the principal amount ($1,000),\n- \\( r \\) is the annual interest rate (3% or 0.03),\n- \\( t \\) is the time in years (5).\n\nFirst, calculate the simple interest:\n\n\\[ \\text{SI} = 1000 \\times 0.03 \\times 5 = 150 \\]\n\nNext, calculate the total amount after 5 years by adding the simple interest to the principal:\n\n\\[ \\text{Total Amount} = P + \\text{SI} = 1000 + 150 = 1150 \\]\n\nSo, the total amount of money you will have after 5 years is $1,150."
+    },
+    {
+      "name": "F5-feature-audit",
+      "weight": 3,
+      "dt": 16.856,
+      "in": 535,
+      "out": 216,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 11,
+      "checks": {
+        "catches_missing_auth": true,
+        "catches_missing_404": true,
+        "catches_missing_validation": true,
+        "catches_missing_idempotency": true,
+        "references_handler_or_service": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 15,
+      "text": "- [BLOCKER] `handlers/order.js`: Auth required on both endpoints (missing in handler)\n  - POST endpoint: No authentication check implemented.\n  - GET endpoint: No authentication check implemented.\n\n- [BLOCKER] `handlers/order.js`: GET /orders/:id returns 404 if not found (handler does not 404)\n  - `fetchOrder` function always returns a JSON response, even if the order is not found.\n\n- [MAJOR] `handlers/order.js`: Validation: items length >= 1 (not enforced)\n  - POST endpoint does not enforce that the `items` array has at least one item.\n\n- [MAJOR] `handlers/order.js`: Idempotency key header honored (not implemented)\n  - POST endpoint does not check for or honor an idempotency key header.\n\n- [MINOR] `services/order.js`: POST body: { userId, items:[{sku,price,qty}] }\n  - The `createOrder` function does not validate the presence of `sku` in each item."
+    },
+    {
+      "name": "F6-find-auth",
+      "weight": 1,
+      "dt": 17.44,
+      "in": 336,
+      "out": 245,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 10,
+      "checks": {
+        "has_list": false,
+        "at_most_10": true,
+        "mentions_routing_policy": true,
+        "mentions_bridge_or_server_mjs": true,
+        "top1_is_auth_relevant": false
+      },
+      "checks_pass": 3,
+      "checks_total": 5,
+      "score": 3,
+      "weighted_score": 3,
+      "text": "1. `mcp-bridge/CLAUDE-routing-policy.md` \u2014 Directly related to routing policy, which is part of the task.\n2. `docs/02-routing-policy.md` \u2014 Provides rationale for routing policy, relevant to understanding the logic.\n3. `mcp-bridge/server.mjs` \u2014 Contains server-side code that likely includes authentication logic and routing.\n4. `tests/bench_fixtures/auth.js` \u2014 Contains audit fixtures related to authentication, relevant for understanding logic.\n5. `docs/01-architecture.md` \u2014 Describes the bridge architecture, which may include authentication and routing logic.\n6. `scripts/server.sh` \u2014 Server-side setup script, potentially includes steps related to authentication and routing.\n7. `scripts/client.sh` \u2014 Client-side setup script, may include relevant configuration for authentication and routing.\n8. `docs/05-gemma4-plumbing.md` \u2014 While focused on Gemma 4, may contain relevant authentication or routing details.\n9. `scripts/install-launchagent.sh` \u2014 Boot-time setup script, could include authentication and routing configurations.\n10. `README.md` \u2014 May provide an overview or links to sections relevant to authentication and routing logic."
+    }
+  ],
+  "qwen3-coder-30b-a3b-instruct": [
+    {
+      "name": "F1-audit-auth",
+      "weight": 3,
+      "dt": 17.306,
+      "in": 353,
+      "out": 80,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 4,
+      "checks": {
+        "catches_getuser_sqli": true,
+        "catches_deleteuser_sqli": true,
+        "catches_deleteuser_noauth": true,
+        "avoids_updateuser_false_positive": true
+      },
+      "checks_pass": 4,
+      "checks_total": 4,
+      "score": 5,
+      "weighted_score": 15,
+      "text": "[MAJOR] auth.js:15:function getUser \u2014 SQL injection vulnerability found in database query construction\n\n[MAJOR] auth.js:15:function getUser \u2014 Missing authentication check for getUser function\n\n[MINOR] auth.js:20:function updateUser \u2014 Unauthenticated user update operations found\n\n[MINOR] auth.js:25:function deleteUser \u2014 Missing authentication check for DELETE function\n```"
+    },
+    {
+      "name": "F2-summarize-ratelimiter",
+      "weight": 2,
+      "dt": 3.618,
+      "in": 195,
+      "out": 189,
+      "finish": "stop",
+      "dup_bullets": 5,
+      "total_bullets": 15,
+      "checks": {
+        "mentions_sliding_window": true,
+        "mentions_max_req_or_100": true,
+        "mentions_allow_api": true,
+        "mentions_remaining_api": true,
+        "mentions_reset_api": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "**API Summary**\n\n**Behavior:**\n- Implements sliding window rate limiting with 60s window\n- Allows up to 100 requests per key in the sliding window\n- Uses fixed-size bucketing with timestamp tracking\n\n**Public API:**\n- `allow(key)`: Returns boolean, true if request allowed\n- `remaining(key)`: Returns integer count of remaining requests\n- `reset(key)`: Removes all tracking for key\n\n**Implementation:**\n- Uses global Map with fixed-size arrays\n- Tracks timestamps in sliding window\n- Maintains per-key state tracking\n\n**API:**\n- `allow(key)`: Returns boolean, true if request allowed\n- `remaining(key)`: Returns integer count of remaining requests  \n- `reset(key)`: Removes tracking for key\n\n**Implementation:**\n- Uses global Map with fixed-size arrays\n- Tracks timestamps in sliding window\n- Maintains per-key state tracking"
+    },
+    {
+      "name": "F3-classify-sqli",
+      "weight": 1,
+      "dt": 0.503,
+      "in": 57,
+      "out": 2,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "one_word_answer": true,
+        "correct_yes": true
+      },
+      "checks_pass": 2,
+      "checks_total": 2,
+      "score": 5,
+      "weighted_score": 5,
+      "text": "YES"
+    },
+    {
+      "name": "F4-group-commits",
+      "weight": 2,
+      "dt": 37.083,
+      "in": 569,
+      "out": 1999,
+      "finish": "length",
+      "dup_bullets": 56,
+      "total_bullets": 85,
+      "checks": {
+        "at_least_3_groups": true,
+        "at_most_10_groups": false,
+        "no_miscellaneous": true,
+        "mentions_auth_group": true,
+        "mentions_billing_group": true,
+        "mentions_ui_group": true,
+        "mentions_deps_group": true
+      },
+      "checks_pass": 6,
+      "checks_total": 7,
+      "score": 4.285714285714286,
+      "weighted_score": 8.571428571428571,
+      "text": "## Auth Implementation\n- a1b2c3d feat(auth): add JWT middleware\n- 3d4e5f6 feat(auth): support refresh tokens\n- b7c8d9e test(auth): add JWT verify unit tests\n- f0a1b2c refactor(auth): extract token parser\n\n## Billing Features\n- d4e5f6a fix(billing): handle missing authorization header\n- 7a8b9c0 feat(billing): add stripe webhook handler\n- b4c5d6e test(billing): stripe webhook signature\n- 7f8a9b0 fix(billing): idempotency key on double-charge\n\n## UI Implementation\n- 5f6a7b8 feat(ui): dark mode toggle in header\n- 9c0d1e2 style(ui): tune dark mode colors\n- 3f4a5b6 fix(ui): sidebar shift on dark-mode toggle\n\n## API Implementation\n- 9e0f1a2 fix(api): connection pool leak on timeout\n- 3c4d5e6 feat(api): add rate-limit headers to all responses\n- 7f8a9b0 test(api): rate-limit header integration test\n\n## Database Optimizations\n- 1f2a3b4 perf(db): add index on users.email\n- 5c6d7e8 perf(db): batch inserts in audit log\n\n## Database Optimizations\n- 9e0f1a2 fix(db): connection pool leak on timeout\n\n## Database Optimizations\n- 5c6d7e8 perf(db): batch inserts in audit log\n\n## Dependencies Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4\n\n## CI Implementation\n- 3e4f5a6 chore(ci): cache node_modules in CI\n- 7b8c9d0 chore(ci): add lint step to pull-request workflow\n\n## Documentation\n- 3a4b5c6 docs(readme): update install instructions\n- 7d8e9f0 docs(contrib): add CONTRIBUTING.md\n\n## Search Implementation\n- 1b2c3d4 fix(search): escape regex metachars in query\n- 5e6f7a8 feat(search): fuzzy matching option\n\n## API Implementation\n- 9b0c1d2 fix(api): 429 response missing Retry-After header\n\n## Documentation\n- 3a4b5c6 docs(readme): update install instructions\n\n## Documentation\n- 7d8e9f0 docs(contrib): add CONTRIBUTING.md\n\n## Dependencies Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n- 9a0b1c2 chore(deps): bump typesste 5.3 -> 5.4\n\n## CI Implementation\n- 3e4f5a6 chore(ci): cache node_modules in CI\n\n## Database Optimizations\n- 1f2a3b4 perf(db): add index on users.email\n\n## Search Implementation\n- 5e6f7a8 feat(search): fuzzy matching option\n\n## Documentation\n- 3a4b5c6 docs(readme): update install instructions\n\n## Dependencies Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n\n## Database Optimizations\n- 1f2a3b4 perf(db): add index on users.email\n\n## Documentation\n- 7d8e9f0 docs(contrib): add CONTRIBUTING.md\n\n## Dependencies Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n\n## Dependencies Updates\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n\n## Dependencies Updates\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4\n\n## CI Implementation\n- 3e4f5a6 chore(ci): cache node_modules in CI\n\n## Database Optimizations\n- 1f2a3b4 perf(db): add index on users.email\n\n## Search Implementation\n- 5e6f7a8 feat(search): fuzzy matching option\n\n## Documentation\n- 3a4b5c6 docs(readme): update install instructions\n\n## Dependencies Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n\n## Dependencies Updates\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n\n## Dependencies Updates\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4\n\n## CI Implementation\n- 3e4f5a6 chore(ci): cache node_modules in CI\n\n## Database Optimizations\n- 1f2a3b4 perf(db): add index on users.email\n\n## Search Implementation\n- 5e6f7a8 feat(search): fuzzy matching option\n\n## Documentation\n- 3a4b5c6 docs(readme): update install instructions\n\n## Dependencies Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n\n## Dependencies Updates\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n\n## Dependencies Updates\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4\n\n## CI Implementation\n- 3e4f5a6 chore(ci): cache node_modules in CI\n\n## Database Optimizations\n- 1f2a3b4 perf(db): add index on users.email\n\n## Search Implementation\n- 5e6f7a8 feat(search): fuzzy matching option\n\n## Documentation\n- 3a4b5c6 docs(readme): update install instructions\n\n## Dependencies Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n\n## Dependencies Updates\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n\n## Dependencies Updates\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4\n\n## CI Implementation\n- 3e4f5a6 chore(ci): cache node_modules in CI\n\n## Database Optimizations\n- 1f2a3b4 perf(db): add index on users.email\n\n## Search Implementation\n- 5e6f7a8 feat(search): fuzzy matching option\n\n## Documentation\n- 3a4b5c6 docs(readme): update install instructions\n\n## Dependencies Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n\n## Dependencies Updates\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n\n## Dependencies Updates\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4\n\n## CI Implementation\n- 3e4f5a6 chore(ci): cache node_modules in CI\n\n## Database Optimizations\n- 1f2a3b4 perf(db): add index on users.email\n\n## Search Implementation\n- 5e6f7a8 feat(search): fuzzy matching option\n\n## Documentation\n- 3a4b5c6 docs(readme): update install instructions\n\n## Dependencies Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n\n## Dependencies Updates\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n\n## Dependencies Updates\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4\n\n## CI Implementation\n- 3e4f5a6 chore(ci): cache node_modules in CI\n\n## Database Optimizations\n- 1f2a3b4 perf(db): add index on users.email\n\n## Search Implementation\n- 5e6f7a8 feat(search): fuzzy matching option\n\n## Documentation\n- 3a4b5c6 docs(readme): update install instructions\n\n## Dependencies Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n\n## Dependencies Updates\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n\n## Dependencies Updates\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5"
+    },
+    {
+      "name": "F5-feature-audit",
+      "weight": 3,
+      "dt": 4.485,
+      "in": 547,
+      "out": 195,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 8,
+      "checks": {
+        "catches_missing_auth": true,
+        "catches_missing_404": true,
+        "catches_missing_validation": true,
+        "catches_missing_idempotency": true,
+        "references_handler_or_service": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 15,
+      "text": "- [MAJOR] handlers/order.js:3 \u2014 POST /orders endpoint missing auth requirement\n- [MAJOR] handlers/order.js:10 \u2014 GET /orders/:id endpoint missing 404 response for unknown order\n- [MAJOR] handlers/order.js:15 \u2014 POST /orders endpoint missing items length >= 1 validation\n- [MAJOR] handlers/order.js:20 \u2014 GET /orders/:id endpoint missing idempotency key header support\n- [MINOR] handlers/order.js:25 \u2014 POST /orders endpoint missing request body validation\n- [MINOR] handlers/order.js:30 \u2014 GET /orders/:id endpoint missing response 404 validation\n- [MINOR] handlers/order.js:35 \u2014 POST /orders endpoint missing response 201 validation\n- [MINOR] handlers/order.js:40 \u2014 GET /orders/:id endpoint missing response 200 validation"
+    },
+    {
+      "name": "F6-find-auth",
+      "weight": 1,
+      "dt": 14.064,
+      "in": 349,
+      "out": 799,
+      "finish": "length",
+      "dup_bullets": 14,
+      "total_bullets": 43,
+      "checks": {
+        "has_list": true,
+        "at_most_10": true,
+        "mentions_routing_policy": true,
+        "mentions_bridge_or_server_mjs": true,
+        "top1_is_auth_relevant": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 5,
+      "text": "- docs/02-routing-policy.md \u2014 Routing policy documentation that would contain routing policy details\n- mcp-bridge/server.mjs \u2014 Node MCP bridge implementation that likely contains authentication logic\n- scripts/server.sh \u2014 Server-side script that may contain routing policy\n- tests/bench_fixtures/auth.js \u2014 Authentication audit fixture that would test authentication logic\n- docs/01-architecture.md \u2014 Bridge architecture doc that may contain routing policy decisions\n- scripts/find_parallel.py \u2014 Hardware probing script that may contain parallel model routing logic\n- docs/03-models.md \u2014 Model choice rationale that would contain routing policy decisions\n- tests/bench_fixtures/rate-limiter.js \u2014 Rate limiter fixture that may contain routing policy\n- scripts/install-launchagent.sh \u2014 Launch agent script that may contain routing decisions\n\nThe most relevant files for \"authentication logic and routing policy\" would be:\n\n1. mcp-bridge/server.mjs \u2014 Contains the core Node MCP bridge logic that would implement authentication and routing\n2. docs/02-routing-policy.md \u2014 Contains the actual routing policy documentation \n3. scripts/server.sh \u2014 Server-side script that likely implements routing rules\n4. tests/bench_fixtures/auth.js \u2014 Authentication audit fixture \n5. docs/01-architecture.md \u2014 Bridge architecture that may contain routing policy decisions\n6. tests/bench_fixtures/rate-limiter.js \u2014 Rate limiter fixture that may contain routing policy\n7. scripts/find_parallel.py \u2014 Hardware probing script \n8. docs/03-models.md \u2014 Model choice rationale that would contain routing policy\n9. scripts/install-launchagent.sh \u2014 Launch agent script \n10. docs/04-fallback-gpt-oss-20b.md \u2014 GPT-OSS fallback doc\n\nThe most relevant files for \"authentication logic and routing policy\" would be:\n\n1. mcp-bridge/server.mjs \u2014 Core Node MCP bridge implementation that implements both authentication and routing\n2. docs/02-routing-policy.md \u2014 Routing policy documentation \n3. scripts/server.sh \u2014 Server-side script that implements routing rules\n4. tests/bench_fixtures/auth.js \u2014 Authentication audit fixture \n5. docs/01-architecture.md \u2014 Bridge architecture doc that may contain routing policy\n6. tests/bench_fixtures/rate-limiter.js \u2014 Rate limiter fixture \n7. docs/03-models.md \u2014 Model choice rationale that would contain routing policy\n8. scripts/find_parallel.py \u2014 Hardware probing script \n9. docs/04-fallback-gpt-oss-20b.md \u2014 GPT-OSS fallback doc \n10. scripts/install-launchagent.sh \u2014 Launch agent script \n\nThe most relevant files for \"authentication logic and routing policy\" would be:\n\n1. mcp-bridge/server.mjs \u2014 Core Node MCP bridge implementation that implements both authentication and routing\n2. docs/02-routing-policy.md \u2014 Routing policy documentation \n3. scripts/server.sh \u2014 Server-side script that implements routing rules\n4. tests/bench_fixtures/auth.js \u2014 Authentication audit fixture \n5. docs/01-architecture.md \u2014 Bridge architecture doc that may contain routing policy\n6. tests/bench_fixtures/rate-limiter.js \u2014 Rate limiter fixture \n7. docs/03-models.md \u2014 Model choice rationale that would contain routing policy\n8. scripts/find_parallel.py \u2014 Hardware probing script \n9. docs/04-fallback-gpt-oss-20b.md \u2014 GPT-OSS fallback doc \n10. scripts/install-launchagent.sh \u2014 Launch agent script \n\nThe most relevant files for \"authentication logic and routing policy\" would be:\n\n1. mcp-bridge/server.mjs \u2014 Core Node MCP bridge implementation that implements both authentication and routing\n2. docs/02-routing-policy.md \u2014 Routing policy documentation \n3. scripts/server.sh \u2014 Server-side script that implements routing rules\n4. tests/bench_fixtures/auth"
+    }
+  ],
+  "qwen2.5-coder-14b-instruct": [
+    {
+      "name": "F1-audit-auth",
+      "weight": 3,
+      "dt": 10.842,
+      "in": 353,
+      "out": 107,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 5,
+      "checks": {
+        "catches_getuser_sqli": false,
+        "catches_deleteuser_sqli": true,
+        "catches_deleteuser_noauth": true,
+        "avoids_updateuser_false_positive": true
+      },
+      "checks_pass": 3,
+      "checks_total": 4,
+      "score": 3.75,
+      "weighted_score": 11.25,
+      "text": "- [MAJOR] auth.js:10 \u2014 Missing `next()` call in authenticateUser function\n- [BLOCKER] auth.js:16 \u2014 SQL Injection vulnerability (use parameterized queries)\n- [MAJOR] auth.js:24 \u2014 Missing error handling in deleteUser function\n- [MINOR] auth.js:10 \u2014 Consider logging the error for better debugging in authenticateUser function\n- [MINOR] auth.js:24 \u2014 Consider adding a check to ensure only authorized users can delete other users"
+    },
+    {
+      "name": "F2-summarize-ratelimiter",
+      "weight": 2,
+      "dt": 8.582,
+      "in": 195,
+      "out": 115,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 6,
+      "checks": {
+        "mentions_sliding_window": true,
+        "mentions_max_req_or_100": true,
+        "mentions_allow_api": true,
+        "mentions_remaining_api": true,
+        "mentions_reset_api": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "### Summary of `rate-limiter.js`\n\n#### Behavior:\n- Implements a sliding window rate limiter.\n- Tracks requests within a 60-second window.\n- Allows up to 100 requests per window.\n\n#### Public API:\n- `allow(key)`: Checks if a request for the given key is allowed. Returns `true` if within limit, otherwise `false`.\n- `remaining(key)`: Returns the number of remaining requests for the given key within the current window.\n- `reset(key)`: Resets the rate limit counter for the given key."
+    },
+    {
+      "name": "F3-classify-sqli",
+      "weight": 1,
+      "dt": 0.658,
+      "in": 57,
+      "out": 2,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "one_word_answer": true,
+        "correct_yes": true
+      },
+      "checks_pass": 2,
+      "checks_total": 2,
+      "score": 5,
+      "weighted_score": 5,
+      "text": "YES"
+    },
+    {
+      "name": "F4-group-commits",
+      "weight": 2,
+      "dt": 42.007,
+      "in": 569,
+      "out": 592,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 29,
+      "checks": {
+        "at_least_3_groups": true,
+        "at_most_10_groups": true,
+        "no_miscellaneous": true,
+        "mentions_auth_group": true,
+        "mentions_billing_group": true,
+        "mentions_ui_group": true,
+        "mentions_deps_group": true
+      },
+      "checks_pass": 7,
+      "checks_total": 7,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "## Auth Enhancements\n- a1b2c3d feat(auth): add JWT middleware\n- d4e5f6a fix(auth): handle missing authorization header\n- b7c8d9e test(auth): add JWT verify unit tests\n- f0a1b2c refactor(auth): extract token parser\n- 3d4e5f6 feat(auth): support refresh tokens\n\n## Billing Features and Fixes\n- 7a8b9c0 fix(billing): correct tax calculation for EU\n- d1e2f3a feat(billing): add stripe webhook handler\n- b4c5d6e test(billing): stripe webhook signature\n- f7a8b9c docs(billing): explain webhook retry policy\n- 1c2d3e4 fix(billing): idempotency key on double-charge\n\n## UI Improvements\n- 5f6a7b8 feat(ui): dark mode toggle in header\n- 9c0d1e2 style(ui): tune dark mode colors\n- 3f4a5b6 fix(ui): sidebar shift on dark-mode toggle\n- 7c8d9e0 feat(ui): keyboard shortcut for dark mode\n\n## Dependency Updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4\n\n## CI/CD Improvements\n- 3e4f5a6 chore(ci): cache node_modules in CI\n- 7b8c9d0 chore(ci): add lint step to pull-request workflow\n\n## Database Performance and Fixes\n- 1f2a3b4 perf(db): add index on users.email\n- 5c6d7e8 perf(db): batch inserts in audit log\n- 9e0f1a2 fix(db): connection pool leak on timeout\n\n## Documentation Updates\n- 3a4b5c6 docs(readme): update install instructions\n- 7d8e9f0 docs(contrib): add CONTRIBUTING.md\n\n## Search Enhancements\n- 1b2c3d4 fix(search): escape regex metachars in query\n- 5e6f7a8 feat(search): fuzzy matching option\n\n## API Improvements\n- 9b0c1d2 fix(api): 429 response missing Retry-After header\n- 3c4d5e6 feat(api): add rate-limit headers to all responses\n- 7f8a9b0 test(api): rate-limit header integration test"
+    },
+    {
+      "name": "F5-feature-audit",
+      "weight": 3,
+      "dt": 9.736,
+      "in": 547,
+      "out": 100,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 4,
+      "checks": {
+        "catches_missing_auth": true,
+        "catches_missing_404": true,
+        "catches_missing_validation": true,
+        "catches_missing_idempotency": true,
+        "references_handler_or_service": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 15,
+      "text": "- [BLOCKER] handlers/order.js:3 \u2014 Auth required on both endpoints (missing in handler)\n- [BLOCKER] handlers/order.js:10 \u2014 GET /orders/:id returns 404 if not found (handler does not 404)\n- [MAJOR] services/order.js:2 \u2014 Validation: items length >= 1 (not enforced)\n- [MAJOR] handlers/order.js:3 \u2014 Idempotency key header honored (not implemented)"
+    },
+    {
+      "name": "F6-find-auth",
+      "weight": 1,
+      "dt": 15.953,
+      "in": 349,
+      "out": 215,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 10,
+      "checks": {
+        "has_list": true,
+        "at_most_10": true,
+        "mentions_routing_policy": true,
+        "mentions_bridge_or_server_mjs": true,
+        "top1_is_auth_relevant": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 5,
+      "text": "- mcp-bridge/CLAUDE-routing-policy.md \u2014 Contains routing rules, directly relevant to routing policy.\n- docs/02-routing-policy.md \u2014 Provides rationale for the routing policy, explaining its purpose and logic.\n- tests/bench_fixtures/auth.js \u2014 Contains an audit fixture related to authentication, relevant to authentication logic.\n- mcp-bridge/server.mjs \u2014 Dispatches tools and likely involves routing, relevant to both authentication and routing policy.\n- scripts/server.sh \u2014 Server-side install script, may involve configuration for authentication and routing.\n- docs/01-architecture.md \u2014 Describes bridge architecture, which could include authentication and routing logic.\n- scripts/install-launchagent.sh \u2014 Boot-time launch script, potentially relevant to setting up authentication and routing policies.\n- scripts/benchmark.sh \u2014 Quick sanity benchmark script, may test authentication and routing logic.\n- README.md \u2014 General repository documentation, could mention authentication and routing policies.\n- scripts/recommended-load.sh \u2014 Loads the HEAVY model, which might be part of a larger system involving authentication and routing."
+    }
+  ],
+  "qwen2.5-coder-7b-instruct": [
+    {
+      "name": "F1-audit-auth",
+      "weight": 3,
+      "dt": 7.721,
+      "in": 353,
+      "out": 198,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 5,
+      "checks": {
+        "catches_getuser_sqli": true,
+        "catches_deleteuser_sqli": true,
+        "catches_deleteuser_noauth": true,
+        "avoids_updateuser_false_positive": true
+      },
+      "checks_pass": 4,
+      "checks_total": 4,
+      "score": 5,
+      "weighted_score": 15,
+      "text": "- **BLOCKER** auth.js:10 \u2014 SQL injection vulnerability in `getUser` function. The query is vulnerable to SQL injection because it directly concatenates user input (`id`) into the SQL command without proper sanitization.\n- **BLOCKER** auth.js:16 \u2014 SQL injection vulnerability in `deleteUser` function. The query is vulnerable to SQL injection because it directly concatenates user input (`id`) into the SQL command without proper sanitization.\n- **MAJOR** auth.js:13 \u2014 Missing authentication check in `getUser` function. The function does not verify if the user is authenticated before retrieving data.\n- **MAJOR** auth.js:19 \u2014 Missing authentication check in `updateUser` function. The function does not verify if the user is authenticated before updating data.\n- **MAJOR** auth.js:23 \u2014 Missing authentication check in `deleteUser` function. The function does not verify if the user is authenticated before deleting data."
+    },
+    {
+      "name": "F2-summarize-ratelimiter",
+      "weight": 2,
+      "dt": 7.438,
+      "in": 195,
+      "out": 208,
+      "finish": "stop",
+      "dup_bullets": 2,
+      "total_bullets": 12,
+      "checks": {
+        "mentions_sliding_window": true,
+        "mentions_max_req_or_100": true,
+        "mentions_allow_api": true,
+        "mentions_remaining_api": true,
+        "mentions_reset_api": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "### rate-limiter.js\n\n#### Behavior:\n- **Sliding Window Rate Limiter**: Limits the number of requests (`MAX_REQ`) within a fixed time window (`WINDOW_MS`).\n- **Key-Based Rate Limiting**: Each key (e.g., user ID) has its own rate limit.\n- **Dynamic Window Management**: Removes expired timestamps from the window to keep track of recent requests.\n\n#### Public API:\n- **allow(key)**: Checks if a request is allowed for the given key.\n  - **Parameters**: `key` (string)\n  - **Returns**: `true` if the request is allowed, `false` otherwise.\n- **remaining(key)**: Returns the number of remaining requests allowed for the given key.\n  - **Parameters**: `key` (string)\n  - **Returns**: Number of remaining requests.\n- **reset(key)**: Resets the rate limit for the given key, effectively allowing all requests again.\n  - **Parameters**: `key` (string)\n  - **Returns**: None"
+    },
+    {
+      "name": "F3-classify-sqli",
+      "weight": 1,
+      "dt": 0.422,
+      "in": 57,
+      "out": 2,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "one_word_answer": true,
+        "correct_yes": true
+      },
+      "checks_pass": 2,
+      "checks_total": 2,
+      "score": 5,
+      "weighted_score": 5,
+      "text": "YES"
+    },
+    {
+      "name": "F4-group-commits",
+      "weight": 2,
+      "dt": 21.83,
+      "in": 569,
+      "out": 584,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 29,
+      "checks": {
+        "at_least_3_groups": true,
+        "at_most_10_groups": true,
+        "no_miscellaneous": true,
+        "mentions_auth_group": true,
+        "mentions_billing_group": true,
+        "mentions_ui_group": true,
+        "mentions_deps_group": true
+      },
+      "checks_pass": 7,
+      "checks_total": 7,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "## Authentication and Authorization\n- a1b2c3d feat(auth): add JWT middleware\n- d4e5f6a fix(auth): handle missing authorization header\n- b7c8d9e test(auth): add JWT verify unit tests\n- f0a1b2c refactor(auth): extract token parser\n- 3d4e5f6 feat(auth): support refresh tokens\n\n## Billing and Payments\n- 7a8b9c0 fix(billing): correct tax calculation for EU\n- d1e2f3a feat(billing): add stripe webhook handler\n- b4c5d6e test(billing): stripe webhook signature\n- f7a8b9c docs(billing): explain webhook retry policy\n- 1c2d3e4 fix(billing): idempotency key on double-charge\n\n## User Interface (UI)\n- 5f6a7b8 feat(ui): dark mode toggle in header\n- 9c0d1e2 style(ui): tune dark mode colors\n- 3f4a5b6 fix(ui): sidebar shift on dark-mode toggle\n- 7c8d9e0 feat(ui): keyboard shortcut for dark mode\n\n## Dependencies and CI/CD\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4\n- 3e4f5a6 chore(ci): cache node_modules in CI\n- 7b8c9d0 chore(ci): add lint step to pull-request workflow\n\n## Database Performance and Fixes\n- 1f2a3b4 perf(db): add index on users.email\n- 5c6d7e8 perf(db): batch inserts in audit log\n- 9e0f1a2 fix(db): connection pool leak on timeout\n\n## Documentation\n- 3a4b5c6 docs(readme): update install instructions\n- 7d8e9f0 docs(contrib): add CONTRIBUTING.md\n\n## Search and API Improvements\n- 1b2c3d4 fix(search): escape regex metachars in query\n- 5e6f7a8 feat(search): fuzzy matching option\n- 9b0c1d2 fix(api): 429 response missing Retry-After header\n- 3c4d5e6 feat(api): add rate-limit headers to all responses\n- 7f8a9b0 test(api): rate-limit header integration test"
+    },
+    {
+      "name": "F5-feature-audit",
+      "weight": 3,
+      "dt": 5.034,
+      "in": 547,
+      "out": 103,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 4,
+      "checks": {
+        "catches_missing_auth": true,
+        "catches_missing_404": true,
+        "catches_missing_validation": true,
+        "catches_missing_idempotency": true,
+        "references_handler_or_service": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 15,
+      "text": "- **BLOCKER** handlers/order.js:10 \u2014 Auth required on both endpoints (missing in handler)\n- **MAJOR** handlers/order.js:10 \u2014 Validation: items length >= 1 (not enforced)\n- **MAJOR** handlers/order.js:20 \u2014 Idempotency key header honored (not implemented)\n- **MAJOR** services/order.js:10 \u2014 GET /orders/:id returns 404 if not found (handler does not 404)"
+    },
+    {
+      "name": "F6-find-auth",
+      "weight": 1,
+      "dt": 8.611,
+      "in": 349,
+      "out": 230,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 10,
+      "checks": {
+        "has_list": true,
+        "at_most_10": true,
+        "mentions_routing_policy": true,
+        "mentions_bridge_or_server_mjs": true,
+        "top1_is_auth_relevant": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 5,
+      "text": "- mcp-bridge/CLAUDE-routing-policy.md \u2014 Contains routing rules which are directly related to routing policy.\n- tests/bench_fixtures/auth.js \u2014 Contains authentication logic, which is directly related to the task.\n- docs/02-routing-policy.md \u2014 Provides rationale for routing policy, which is relevant to the task.\n- mcp-bridge/server.mjs \u2014 Dispatches tools and could potentially contain authentication logic.\n- scripts/install-launchagent.sh \u2014 Could be related to setup scripts that might include routing policy or authentication logic.\n- docs/01-architecture.md \u2014 Provides an overview of the architecture, which could include details on authentication and routing.\n- scripts/client.sh \u2014 Setup script for the client-side bridge, which might include routing or authentication logic.\n- scripts/benchmark.sh \u2014 Quick sanity benchmark script that could be related to testing aspects of authentication or routing.\n- scripts/find_parallel.py \u2014 Hardware probe for parallel model fit, could be related to performance optimizations that might involve routing or authentication.\n- README.md \u2014 General overview of the repository, which could provide context on where to find more specific files related to authentication and routing."
+    }
+  ],
+  "qwen3-14b": [
+    {
+      "name": "F1-audit-auth",
+      "weight": 3,
+      "dt": 42.184,
+      "in": 353,
+      "out": 612,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 5,
+      "checks": {
+        "catches_getuser_sqli": false,
+        "catches_deleteuser_sqli": false,
+        "catches_deleteuser_noauth": false,
+        "avoids_updateuser_false_positive": true
+      },
+      "checks_pass": 1,
+      "checks_total": 4,
+      "score": 1.25,
+      "weighted_score": 3.75,
+      "text": "[MAJOR] auth.js:10 \u2014 SQL injection vulnerability (direct user input in query string)\n[MAJOR] auth.js:20 \u2014 SQL injection vulnerability (direct user input in query string)\n[MAJOR] auth.js:5 \u2014 Missing authentication check for endpoint (no validation of req.user)\n[MAJOR] auth.js:15 \u2014 Missing authentication check for endpoint (no validation of req.user)\n[MAJOR] auth.js:25 \u2014 Missing authentication check for endpoint (no validation of req.user)"
+    },
+    {
+      "name": "F2-summarize-ratelimiter",
+      "weight": 2,
+      "dt": 26.262,
+      "in": 195,
+      "out": 406,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 9,
+      "checks": {
+        "mentions_sliding_window": true,
+        "mentions_max_req_or_100": true,
+        "mentions_allow_api": true,
+        "mentions_remaining_api": true,
+        "mentions_reset_api": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "**Behavior:**\n- Sliding window rate limiting (time window: 60s, max requests: 100).\n- Tracks request timestamps in a Map (`buckets`), pruning outdated entries (> WINDOW_MS) during each check.\n\n**Public API:**\n1. `allow(key)`  \n   - Returns `true` if request is allowed (under limit), else `false`.  \n   - Automatically trims old timestamps from the key's history.\n\n2. `remaining(key)`  \n   - Returns remaining allowed requests for the key (0 if over limit).\n\n3. `reset(key)`  \n   - Clears the rate limiter state for the specified key."
+    },
+    {
+      "name": "F3-classify-sqli",
+      "weight": 1,
+      "dt": 12.737,
+      "in": 57,
+      "out": 199,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "one_word_answer": false,
+        "correct_yes": false
+      },
+      "checks_pass": 0,
+      "checks_total": 2,
+      "score": 0,
+      "weighted_score": 0,
+      "text": ""
+    },
+    {
+      "name": "F4-group-commits",
+      "weight": 2,
+      "dt": 88.307,
+      "in": 569,
+      "out": 1339,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 29,
+      "checks": {
+        "at_least_3_groups": true,
+        "at_most_10_groups": true,
+        "no_miscellaneous": true,
+        "mentions_auth_group": true,
+        "mentions_billing_group": true,
+        "mentions_ui_group": true,
+        "mentions_deps_group": true
+      },
+      "checks_pass": 7,
+      "checks_total": 7,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "## Auth improvements\n- a1b2c3d feat(auth): add JWT middleware\n- d4e5f6a fix(auth): handle missing authorization header\n- b7c8d9e test(auth): add JWT verify unit tests\n- f0a1b2c refactor(auth): extract token parser\n- 3d4e5f6 feat(auth): support refresh tokens\n\n## Billing enhancements\n- 7a8b9c0 fix(billing): correct tax calculation for EU\n- d1e2f3a feat(billing): add stripe webhook handler\n- b4c5d6e test(billing): stripe webhook signature\n- f7a8b9c docs(billing): explain webhook retry policy\n- 1c2d3e4 fix(billing): idempotency key on double-charge\n\n## UI dark mode features\n- 5f6a7b8 feat(ui): dark mode toggle in header\n- 9c0d1e2 style(ui): tune dark mode colors\n- 3f4a5b6 fix(ui): sidebar shift on dark-mode toggle\n- 7c8d9e0 feat(ui): keyboard shortcut for dark mode\n\n## Dependency updates\n- 1a2b3c4 chore(deps): bump react 18.2 -> 18.3\n- 5d6e7f8 chore(deps): bump vite 5.1 -> 5.2\n- 9a0b1c2 chore(deps): bump typescript 5.3 -> 5.4\n\n## CI/CD improvements\n- 3e4f5a6 chore(ci): cache node_modules in CI\n- 7b8c9d0 chore(ci): add lint step to pull-request workflow\n\n## Database performance\n- 1f2a3b4 perf(db): add index on users.email\n- 5c6d7e8 perf(db): batch inserts in audit log\n- 9e0f1a2 fix(db): connection pool leak on timeout\n\n## Documentation updates\n- 3a4b5c6 docs(readme): update install instructions\n- 7d8e9f0 docs(contrib): add CONTRIBUTING.md\n\n## Search improvements\n- 1b2c3d4 fix(search): escape regex metachars in query\n- 5e6f7a8 feat(search): fuzzy matching option\n\n## API rate limiting\n- 9b0c1d2 fix(api): 429 response missing Retry-After header\n- 3c4d5e6 feat(api): add rate-limit headers to all responses\n- 7f8a9b0 test(api): rate-limit header integration test"
+    },
+    {
+      "name": "F5-feature-audit",
+      "weight": 3,
+      "dt": 59.785,
+      "in": 547,
+      "out": 900,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 5,
+      "checks": {
+        "catches_missing_auth": true,
+        "catches_missing_404": true,
+        "catches_missing_validation": true,
+        "catches_missing_idempotency": true,
+        "references_handler_or_service": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 15,
+      "text": "- [BLOCKER] handlers/order.js:1 \u2014 Missing auth checks on POST /orders and GET /orders/:id  \n- [MAJOR] services/order.js:5 \u2014 Items length validation not enforced (items could be empty)  \n- [MAJOR] handlers/order.js:12 \u2014 GET /orders/:id does not return 404 when order is not found  \n- [MAJOR] handlers/order.js:1 \u2014 Idempotency key header not honored in POST /orders handler  \n- [MAJOR] services/order.js:5 \u2014 201 response missing 'status' field in POST /orders (spec requires {id, total, status})"
+    },
+    {
+      "name": "F6-find-auth",
+      "weight": 1,
+      "dt": 52.105,
+      "in": 349,
+      "out": 799,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 10,
+      "checks": {
+        "has_list": true,
+        "at_most_10": true,
+        "mentions_routing_policy": true,
+        "mentions_bridge_or_server_mjs": true,
+        "top1_is_auth_relevant": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 5,
+      "text": "- mcp-bridge/CLAUDE-routing-policy.md \u2014 Explicitly named routing policy document  \n- docs/02-routing-policy.md \u2014 Explains routing policy rationale  \n- tests/bench_fixtures/auth.js \u2014 Contains authentication audit fixture code  \n- mcp-bridge/server.mjs \u2014 Core server logic for dispatching tools (may include auth/routing)  \n- docs/01-architecture.md \u2014 Describes bridge architecture including authentication/routing components  \n- tests/bench_fixtures/rate-limiter.js \u2014 Related to access control (complementary to auth)  \n- docs/04-fallback-gpt-oss-20b.md \u2014 Mentions fallback authentication mechanisms  \n- scripts/install-launchagent.sh \u2014 Boot-time setup may involve auth/routing configuration  \n- README.md \u2014 High-level overview of authentication and routing in the project  \n- scripts/find_parallel.py \u2014 Hardware checks might relate to resource-based routing policies"
+    }
+  ],
+  "qwen3-8b": [
+    {
+      "name": "F1-audit-auth",
+      "weight": 3,
+      "dt": 36.812,
+      "in": 353,
+      "out": 1027,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 5,
+      "checks": {
+        "catches_getuser_sqli": true,
+        "catches_deleteuser_sqli": true,
+        "catches_deleteuser_noauth": true,
+        "avoids_updateuser_false_positive": true
+      },
+      "checks_pass": 4,
+      "checks_total": 4,
+      "score": 5,
+      "weighted_score": 15,
+      "text": "[MAJOR] auth.js:12 \u2014 SQL injection in getUser (direct concatenation of id)  \n[MAJOR] auth.js:23 \u2014 SQL injection in deleteUser (direct concatenation of id)  \n[MAJOR] auth.js:10 \u2014 Missing authentication check in getUser (no token validation)  \n[MAJOR] auth.js:10 \u2014 Missing authentication check in updateUser (no token validation)  \n[MAJOR] auth.js:10 \u2014 Missing authentication check in deleteUser (no token validation)"
+    },
+    {
+      "name": "F2-summarize-ratelimiter",
+      "weight": 2,
+      "dt": 20.461,
+      "in": 195,
+      "out": 579,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 11,
+      "checks": {
+        "mentions_sliding_window": true,
+        "mentions_max_req_or_100": true,
+        "mentions_allow_api": true,
+        "mentions_remaining_api": true,
+        "mentions_reset_api": true
+      },
+      "checks_pass": 5,
+      "checks_total": 5,
+      "score": 5,
+      "weighted_score": 10,
+      "text": "**rate-limiter.js Summary**\n\n**Behavior:**  \n- Implements a sliding window rate limiter with 100 requests allowed per 60,000 ms (1 minute).  \n- Tracks timestamps for each key in a Map (`buckets`).  \n- Removes outdated timestamps (older than 1 minute) on each request.  \n- Enforces limits by checking the count of recent requests per key.  \n\n**Public API:**  \n1. `allow(key)` \u2192 Boolean  \n   - Returns `true` if the request is allowed (within limit), otherwise `false`.  \n   - Updates the key's timestamp list.  \n\n2. `remaining(key)` \u2192 Number  \n   - Returns remaining capacity (0 if limit is reached).  \n\n3. `reset(key)` \u2192 Void  \n   - Clears the key's request history, resetting its count."
+    },
+    {
+      "name": "F3-classify-sqli",
+      "weight": 1,
+      "dt": 7.103,
+      "in": 57,
+      "out": 199,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "one_word_answer": false,
+        "correct_yes": false
+      },
+      "checks_pass": 0,
+      "checks_total": 2,
+      "score": 0,
+      "weighted_score": 0,
+      "text": ""
+    },
+    {
+      "name": "F4-group-commits",
+      "weight": 2,
+      "dt": 73.397,
+      "in": 569,
+      "out": 1999,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "at_least_3_groups": false,
+        "at_most_10_groups": true,
+        "no_miscellaneous": true,
+        "mentions_auth_group": false,
+        "mentions_billing_group": false,
+        "mentions_ui_group": false,
+        "mentions_deps_group": false
+      },
+      "checks_pass": 2,
+      "checks_total": 7,
+      "score": 1.4285714285714284,
+      "weighted_score": 2.8571428571428568,
+      "text": ""
+    },
+    {
+      "name": "F5-feature-audit",
+      "weight": 3,
+      "dt": 75.245,
+      "in": 547,
+      "out": 1999,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 2,
+      "checks": {
+        "catches_missing_auth": true,
+        "catches_missing_404": false,
+        "catches_missing_validation": false,
+        "catches_missing_idempotency": false,
+        "references_handler_or_service": true
+      },
+      "checks_pass": 2,
+      "checks_total": 5,
+      "score": 2,
+      "weighted_score": 6,
+      "text": "- [MAJOR] handlers/order.js:10 \u2014 Auth required on POST /orders is missing  \n- [MAJOR] handlers/order.js"
+    },
+    {
+      "name": "F6-find-auth",
+      "weight": 1,
+      "dt": 22.381,
+      "in": 349,
+      "out": 616,
+      "finish": "stop",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "has_list": false,
+        "at_most_10": true,
+        "mentions_routing_policy": true,
+        "mentions_bridge_or_server_mjs": true,
+        "top1_is_auth_relevant": false
+      },
+      "checks_pass": 3,
+      "checks_total": 5,
+      "score": 3,
+      "weighted_score": 3,
+      "text": "tests/bench_fixtures/auth.js \u2014 Direct mention of \"auth\" in test fixtures likely covering authentication logic  \nmcp-bridge/CLAUDE-routing-policy.md \u2014 Explicitly named routing policy document for Claude  \ndocs/02-routing-policy.md \u2014 Additional documentation on routing policy rationale  \nserver.mjs \u2014 Node MCP bridge handles tool dispatch and likely contains routing/auth logic  \ndocs/01-architecture.md \u2014 Architecture doc may include authentication/routing components  \ntests/bench_fixtures/rate-limiter.js \u2014 Rate limiting fixture (related to authentication controls)  \nscripts/server.sh \u2014 Server-side installation script potentially configuring auth/routing  \nmcp-bridge/CLAUDE-routing-policy.md \u2014 Duplicate entry (already listed)  \ndocs/04-fallback-gpt-oss-20b.md \u2014 Fallback documentation (indirectly related to routing)  \nscripts/install-launchagent.sh \u2014 Boot-time setup possibly affecting routing policies"
+    }
+  ],
+  "qwen3.5-9b": [
+    {
+      "name": "F1-audit-auth",
+      "weight": 3,
+      "dt": 46.177,
+      "in": 391,
+      "out": 1199,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "catches_getuser_sqli": false,
+        "catches_deleteuser_sqli": false,
+        "catches_deleteuser_noauth": false,
+        "avoids_updateuser_false_positive": true
+      },
+      "checks_pass": 1,
+      "checks_total": 4,
+      "score": 1.25,
+      "weighted_score": 3.75,
+      "text": ""
+    },
+    {
+      "name": "F2-summarize-ratelimiter",
+      "weight": 2,
+      "dt": 30.039,
+      "in": 214,
+      "out": 799,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 2,
+      "checks": {
+        "mentions_sliding_window": true,
+        "mentions_max_req_or_100": true,
+        "mentions_allow_api": false,
+        "mentions_remaining_api": false,
+        "mentions_reset_api": false
+      },
+      "checks_pass": 2,
+      "checks_total": 5,
+      "score": 2,
+      "weighted_score": 4,
+      "text": "### Behavior\n*   **Algorithm**: Sliding window rate limiting.\n*   **Configuration**: Fixed 60,000ms (1 minute) window and 100 request maximum per key.\n*"
+    },
+    {
+      "name": "F3-classify-sqli",
+      "weight": 1,
+      "dt": 7.788,
+      "in": 60,
+      "out": 199,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "one_word_answer": false,
+        "correct_yes": false
+      },
+      "checks_pass": 0,
+      "checks_total": 2,
+      "score": 0,
+      "weighted_score": 0,
+      "text": ""
+    },
+    {
+      "name": "F4-group-commits",
+      "weight": 2,
+      "dt": 77.429,
+      "in": 575,
+      "out": 1999,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "at_least_3_groups": false,
+        "at_most_10_groups": true,
+        "no_miscellaneous": true,
+        "mentions_auth_group": false,
+        "mentions_billing_group": false,
+        "mentions_ui_group": false,
+        "mentions_deps_group": false
+      },
+      "checks_pass": 2,
+      "checks_total": 7,
+      "score": 1.4285714285714284,
+      "weighted_score": 2.8571428571428568,
+      "text": ""
+    },
+    {
+      "name": "F5-feature-audit",
+      "error": "400: {\"error\":\"The model has crashed without additional information. (Exit code: null)\"}",
+      "weight": 3
+    },
+    {
+      "name": "F6-find-auth",
+      "weight": 1,
+      "dt": 41.105,
+      "in": 355,
+      "out": 799,
+      "finish": "length",
+      "dup_bullets": 0,
+      "total_bullets": 0,
+      "checks": {
+        "has_list": false,
+        "at_most_10": true,
+        "mentions_routing_policy": false,
+        "mentions_bridge_or_server_mjs": false,
+        "top1_is_auth_relevant": false
+      },
+      "checks_pass": 1,
+      "checks_total": 5,
+      "score": 1,
+      "weighted_score": 1,
+      "text": ""
+    }
+  ]
+}

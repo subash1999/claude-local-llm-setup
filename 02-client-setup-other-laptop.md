@@ -24,7 +24,7 @@ claude          # If prompted, run 'claude login' and OAuth-auth with Max accoun
 ```bash
 SERVER_URL=http://<your-mac>.local:1234   # the URL server.sh printed
 curl "$SERVER_URL/v1/models"
-# Expected: JSON with qwen3-coder-30b-a3b-instruct in the data array.
+# Expected: JSON with qwen2.5-coder-7b-instruct in the data array.
 ```
 
 If that fails (mDNS blocked by VPN, guest network, etc.), fall back to raw IP — get it on the server with `ipconfig getifaddr en0` and use `http://<ip>:1234` instead.
@@ -40,7 +40,7 @@ cat >> ~/.zshrc <<'EOF'
 # Claude Code modes
 #
 #   claude          → cloud mode via Max 20x subscription (default)
-#   claude-local    → local mode via home Mac (Qwen3-Coder-30B-A3B)
+#   claude-local    → local mode via home Mac (Qwen2.5-Coder-7B)
 #   claude-home     → alias for claude-local
 # =========================================================================
 
@@ -53,7 +53,7 @@ cat >> ~/.zshrc <<'EOF'
 claude-local() {
   ANTHROPIC_BASE_URL="$HOME_LLM_URL" \
   ANTHROPIC_AUTH_TOKEN="lmstudio" \
-  ANTHROPIC_MODEL="qwen3-coder-30b-a3b-instruct" \
+  ANTHROPIC_MODEL="qwen2.5-coder-7b-instruct" \
   CLAUDE_CODE_DISABLE_ATTRIBUTION=1 \
   command claude "$@"
 }

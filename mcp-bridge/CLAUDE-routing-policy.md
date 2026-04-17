@@ -1,6 +1,6 @@
 ## Local LLM routing (from claude-local-llm-setup)
 
-MCP tools from `local-llm-bridge` → offload work to home Mac (Qwen3-Coder-30B-A3B HEAVY). Cost: $0. Built-in reasoning / subagents burn Max 20x quota.
+MCP tools from `local-llm-bridge` → offload work to home Mac (Qwen2.5-Coder-7B HEAVY). Cost: $0. Built-in reasoning / subagents burn Max 20x quota.
 
 ### Rules — follow unless override
 
