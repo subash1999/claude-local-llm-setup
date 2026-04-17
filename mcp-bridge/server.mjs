@@ -10,6 +10,9 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import fetch from 'node-fetch';
 import fs from 'node:fs/promises';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import os from 'node:os';
 import { execSync } from 'node:child_process';
 
 const LOCAL_URL = process.env.LOCAL_LLM_URL;
@@ -21,7 +24,13 @@ if (!LOCAL_URL) {
   process.exit(1);
 }
 const HEAVY_MODEL  = process.env.LOCAL_LLM_MODEL  || 'qwen2.5-coder-7b-instruct';
+const EMBED_MODEL  = process.env.LOCAL_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5';
 const CAVEMAN_MODE = (process.env.CAVEMAN_MODE || 'on').toLowerCase() !== 'off';
+
+// Semantic index dir — one JSONL per indexed repo root (sha1 of absolute path).
+const INDEX_DIR = process.env.SEMANTIC_INDEX_DIR || path.join(os.homedir(), '.claude', 'semantic-index');
+// Derive the embeddings URL from the chat-completions URL by swapping the path.
+const EMBED_URL = LOCAL_URL.replace(/\/v1\/.*$/, '/v1/embeddings');
 
 // Inspired by JuliusBrussee/caveman — https://github.com/JuliusBrussee/caveman
 // Output-side compression: every reply comes back terse, Claude reads fewer tokens.
@@ -253,7 +262,62 @@ const TOOLS = [
       required: ['repo', 'range'],
     },
   },
+  {
+    name: 'local_semantic_search',
+    description: 'Natural-language file/chunk search across a repo using a local embedding index (nomic-embed). Beats local_find on large codebases where keyword prefilter misses (e.g. "code that debounces user input" when the file says "schedule"). Prerequisite: run `node scripts/semantic-index.mjs <root>` once to build the index. Zero HEAVY tokens burned — pure embedding similarity. RETURNS a ranked list of path:start-end chunks with a snippet.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        root:  { type: 'string', description: 'Absolute path to the indexed repo root.' },
+        query: { type: 'string', description: 'Natural-language description of what to find.' },
+        top_k: { type: 'number', description: 'Max results to return. Default 10.' },
+      },
+      required: ['root', 'query'],
+    },
+  },
 ];
+
+// --- Semantic search helpers ---------------------------------------------
+// In-memory cache keyed by abs-root -> array of {path, start, end, text, e:Float32Array}.
+const INDEX_CACHE = new Map();
+
+function indexKey(absRoot) {
+  return crypto.createHash('sha1').update(absRoot).digest('hex').slice(0, 16);
+}
+
+async function loadIndex(absRoot) {
+  if (INDEX_CACHE.has(absRoot)) return INDEX_CACHE.get(absRoot);
+  const key = indexKey(absRoot);
+  const jsonl = path.join(INDEX_DIR, `${key}.jsonl`);
+  const data = await fs.readFile(jsonl, 'utf8');
+  const chunks = [];
+  for (const line of data.split('\n')) {
+    if (!line) continue;
+    const o = JSON.parse(line);
+    // Float32Array is ~4x smaller than boxed numbers and cosine is a tight loop.
+    chunks.push({ path: o.path, start: o.start, end: o.end, text: o.text, e: Float32Array.from(o.e) });
+  }
+  INDEX_CACHE.set(absRoot, chunks);
+  return chunks;
+}
+
+async function embedQuery(q) {
+  const r = await fetch(EMBED_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: EMBED_MODEL, input: q }),
+  });
+  if (!r.ok) throw new Error(`embed ${r.status}: ${(await r.text()).slice(0,200)}`);
+  const j = await r.json();
+  return Float32Array.from(j.data[0].embedding);
+}
+
+function cosine(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb) + 1e-9);
+}
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 
@@ -285,6 +349,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             local_feature_audit:  'HEAVY — multi-file audit of a feature vs spec',
             local_diff_review:    'HEAVY — review a git diff between two refs',
             local_group_commits:  'HEAVY — cluster commits into PR-sized groups by theme',
+            local_semantic_search:'EMBED — nomic-embed similarity over a pre-built index; zero HEAVY tokens. Requires `node scripts/semantic-index.mjs <root>` once.',
           },
           routing_hints: [
             'File review / audit / feature audit / diff review / commit grouping -> use the purpose-built tool above.',
@@ -456,6 +521,36 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           ),
           { caveman: false, penalties: 'structured', maxTokens: 2000 },
         );
+        break;
+      }
+
+      case 'local_semantic_search': {
+        const absRoot = path.resolve(a.root);
+        const topK = Math.max(1, Math.min(50, a.top_k ?? 10));
+        let chunks;
+        try {
+          chunks = await loadIndex(absRoot);
+        } catch (e) {
+          if (e.code === 'ENOENT') {
+            out = `No semantic index for ${absRoot}. Build it once with:\n` +
+                  `  node scripts/semantic-index.mjs ${absRoot}\n` +
+                  `(runs against the local nomic-embed model; no cloud/quota cost.)`;
+            break;
+          }
+          throw e;
+        }
+        const qv = await embedQuery(a.query);
+        const scored = new Array(chunks.length);
+        for (let i = 0; i < chunks.length; i++) {
+          scored[i] = { i, s: cosine(qv, chunks[i].e) };
+        }
+        scored.sort((x, y) => y.s - x.s);
+        const top = scored.slice(0, topK).map(({ i, s }) => {
+          const c = chunks[i];
+          const snippet = c.text.replace(/\s+/g, ' ').slice(0, 120);
+          return `- [${s.toFixed(3)}] ${c.path}:${c.start}-${c.end} — ${snippet}`;
+        });
+        out = `Top ${top.length} matches for: ${a.query}\n\n${top.join('\n')}`;
         break;
       }
 

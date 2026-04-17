@@ -17,7 +17,8 @@ MCP tools from `local-llm-bridge` → offload work to home Mac (Qwen2.5-Coder-7B
    | audit feature spanning MULTIPLE files vs spec | `local_feature_audit` |
    | review branch / PR / diff between two refs | `local_diff_review` |
    | cluster commits into PR-sized groups, draft release notes | `local_group_commits` |
-   | "find files that do X" / "where is code for Y" | `local_find` |
+   | "find files that do X" / "where is code for Y" (keyword-friendly) | `local_find` |
+   | "conceptually about X" / semantic match on large repo | `local_semantic_search` |
    | summarize / overview-describe files | `local_summarize` |
    | bulk explain, draft boilerplate, simple refactor, yes/no classify | `local_ask` |
 
