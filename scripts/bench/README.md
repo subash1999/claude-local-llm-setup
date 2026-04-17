@@ -70,6 +70,55 @@ Outputs land in `/tmp/bench2_results.json` and per-model
 
 See `../../04-fallback-gpt-oss-20b.md` for analysis and rationale.
 
+## F7 — deep-audit vs heavy regression (separate file)
+
+The 6 fixtures above pick a general HEAVY model. **F7** is a dedicated
+regression that exercises `local_deep_audit` (14B) with the HEAVY (7B)
+as a side-by-side negative control. It lives in a separate script so
+the /60 canon stays pristine.
+
+**Fixture:** 40-LOC `payments/charge.js` with two planted issues:
+- **BLOCKER** — SQL injection (string-concatenated idempotency-key SELECT)
+- **MAJOR**   — card token logged in plaintext (PCI/PII violation, not
+                a classic injection pattern — the complementary failure
+                mode that motivates keeping the 14B around)
+
+**Rubric (6 binary checks, 5 pts each, score /5):**
+1. `catches_sqli` — mentions SQL + (injection|concat|interpolation)
+2. `sqli_is_blocker` — SQLi finding labeled BLOCKER (`[BLOCKER]` or `**BLOCKER**`)
+3. `catches_pii_log` — mentions log* + (card|token|pci|pii|sensitive|plaintext|redact|mask)
+4. `pii_major_or_blocker` — PII finding labeled BLOCKER or MAJOR
+5. `no_invented_lines` — every `:N` citation has N ≤ 40 (fixture size)
+6. `no_repetition_loop` — duplicate-bullet count ≤ 1
+
+**Run:**
+
+```bash
+# Both models, sequential load/unload:
+bash scripts/bench/bench-deep-audit_all.sh
+
+# One model only (must be loaded):
+node scripts/bench/bench-deep-audit.mjs qwen2.5-coder-14b-instruct
+```
+
+Output lands in `scripts/bench/results-deep-audit-<YYYY-MM-DD>.json`.
+
+### 2026-04-17 results
+
+| Model | SQLi | sev | PII | sev | no-invent | no-loop | Score | Notes |
+|---|---|---|---|---|---|---|---|---|
+| **Qwen2.5-Coder-14B (DEEP)** | ✓ | ✓ BLOCKER | ✓ | ✗ NIT | ✓ | ✓ | **4.2/5** | Severity under-calibrated on PII |
+| Qwen2.5-Coder-7B (HEAVY)     | ✓ | ✓ BLOCKER | ✓ | ✓ BLOCKER | **✗ (41, 44 past EOF)** | ✓ | **4.2/5** | Every finding labeled BLOCKER; **invents line numbers past EOF** |
+
+**Read:** Both models tie on this fixture but with different failure
+modes. The 7B hits the "invented line numbers past EOF" symptom that
+rule 7 explicitly flags as `🔴`-worthy — and over-labels every finding
+as BLOCKER (low severity discrimination). The 14B is disciplined on
+line citations but under-labels PII as NIT. Neither is sufficient
+alone; cloud is the correct fallback when severity calibration matters
+(rule 4b). The `complementary-failure-mode` claim holds in the axes
+you probe for — not in raw pass-count.
+
 ## Re-probe triggers
 
 Re-run when:

@@ -1,0 +1,53 @@
+{
+  "fixture": "F7-deep-audit",
+  "date": "2026-04-17",
+  "results": {
+    "qwen2.5-coder-14b-instruct": {
+      "dt": 16.54,
+      "in": 472,
+      "out": 189,
+      "finish": "stop",
+      "checks": {
+        "catches_sqli": true,
+        "sqli_is_blocker": true,
+        "catches_pii_log": true,
+        "pii_major_or_blocker": false,
+        "no_invented_lines": true,
+        "no_repetition_loop": true,
+        "_dup": {
+          "total": 8,
+          "dup": 0
+        },
+        "_invented_lines": []
+      },
+      "passed": 5,
+      "score": 4.166666666666667,
+      "text": "- [BLOCKER] payments/charge.js:10 \u2014 Potential SQL Injection vulnerability due to string interpolation in the query.\n- [BLOCKER] payments/charge.js:26 \u2014 Potential SQL Injection vulnerability due to string interpolation in the query.\n- [MAJOR] payments/charge.js:17 \u2014 Missing error handling for `fetch` request.\n- [MAJOR] payments/charge.js:34 \u2014 Missing error handling for `db.query` insert.\n- [MINOR] payments/charge.js:10 \u2014 Use parameterized queries to prevent SQL injection.\n- [MINOR] payments/charge.js:26 \u2014 Use parameterized queries to prevent SQL injection.\n- [NIT] payments/charge.js:1 \u2014 Missing logging of `cardToken` for security reasons.\n- [NIT] payments/charge.js:1 \u2014 Missing logging of `process.env.PROV_KEY` for security reasons."
+    },
+    "qwen2.5-coder-7b-instruct": {
+      "dt": 16.078,
+      "in": 472,
+      "out": 452,
+      "finish": "stop",
+      "checks": {
+        "catches_sqli": true,
+        "sqli_is_blocker": true,
+        "catches_pii_log": true,
+        "pii_major_or_blocker": true,
+        "no_invented_lines": false,
+        "no_repetition_loop": true,
+        "_dup": {
+          "total": 9,
+          "dup": 0
+        },
+        "_invented_lines": [
+          41,
+          44
+        ]
+      },
+      "passed": 5,
+      "score": 4.166666666666667,
+      "text": "- **BLOCKER** payments/charge.js:14 \u2014 SQL injection vulnerability in `db.query`. The query string is constructed using string concatenation, which can lead to SQL injection if `idempotencyKey` is derived from user input. Use parameterized queries instead.\n- **BLOCKER** payments/charge.js:21 \u2014 Potential exposure of sensitive information in logs. The `cardToken` is logged, which could potentially expose PII. Ensure that sensitive information is not logged unless absolutely necessary.\n- **BLOCKER** payments/charge.js:24 \u2014 Insecure API key handling. The `PROV_KEY` is exposed in the logs, which could lead to security risks if the key is compromised. Ensure that sensitive environment variables are not logged or exposed in any way.\n- **BLOCKER** payments/charge.js:27 \u2014 Missing error handling for `fetch` and database operations. The function does not handle errors that may occur during the fetch or database query, which could lead to unhandled exceptions and potential data loss.\n- **BLOCKER** payments/charge.js:32 \u2014 Potential race condition. The function does not handle the case where multiple requests with the same `idempotencyKey` are made simultaneously. This could lead to duplicate charges being processed.\n- **BLOCKER** payments/charge.js:35 \u2014 Missing validation for `amountCents`. The function does not validate that `amountCents` is a positive integer, which could lead to invalid charges being processed.\n- **BLOCKER** payments/charge.js:38 \u2014 Missing validation for `cardToken`. The function does not validate that `cardToken` is a valid card token, which could lead to invalid charges being processed.\n- **BLOCKER** payments/charge.js:41 \u2014 Missing validation for `userId`. The function does not validate that `userId` is a valid user ID, which could lead to invalid charges being processed.\n- **BLOCKER** payments/charge.js:44 \u2014 Missing validation for `idempotencyKey`. The function does not validate that `idempotencyKey` is a valid idempotency key, which could lead to invalid charges being processed."
+    }
+  }
+}
