@@ -77,6 +77,12 @@ node scripts/semantic-index.mjs /path/to/your/repo
 # Then Claude calls local_semantic_search({ root, query, top_k }) via MCP.
 ```
 
+Server URL discovery (checked in order): `LOCAL_LLM_BASE` → `HOME_LLM_URL`
+(same var the `claude-local` alias sets) → `http://127.0.0.1:1234`. On a
+client Mac where the LM Studio server lives on another host, the shell
+block written by `scripts/client.sh` already exports `HOME_LLM_URL`, so
+`node scripts/semantic-index.mjs` works with zero extra config.
+
 Index location: `~/.claude/semantic-index/<sha1(abs-root)>.jsonl`.
 Storage: ~4 MB per 1000 chunks (768-dim f32 + text). Zero HEAVY model tokens
 on query — pure embedding cosine.

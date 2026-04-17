@@ -8,7 +8,9 @@
 //   node scripts/semantic-index.mjs <repo-root> --rebuild
 //
 // Env:
-//   LOCAL_LLM_BASE  — e.g. http://127.0.0.1:1234  (default)
+//   LOCAL_LLM_BASE  — preferred; e.g. http://your-mac.local:1234
+//   HOME_LLM_URL    — fallback; same shell var the `claude-local` alias uses
+//   (default if neither set: http://127.0.0.1:1234)
 //   EMBED_MODEL     — default text-embedding-nomic-embed-text-v1.5
 //   INDEX_DIR       — default ~/.claude/semantic-index
 //
@@ -25,7 +27,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
 
-const LOCAL_BASE = (process.env.LOCAL_LLM_BASE || 'http://127.0.0.1:1234').replace(/\/+$/, '');
+const LOCAL_BASE = (process.env.LOCAL_LLM_BASE || process.env.HOME_LLM_URL || 'http://127.0.0.1:1234').replace(/\/+$/, '');
 const EMBED_URL  = `${LOCAL_BASE}/v1/embeddings`;
 const EMBED_MODEL = process.env.EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5';
 const INDEX_DIR  = process.env.INDEX_DIR || path.join(os.homedir(), '.claude', 'semantic-index');
