@@ -1,3 +1,5 @@
 model,wall_ms,prompt_tokens,completion_tokens,total_findings,unique_bugs_found,true_positive,false_positive,hallucinated_line,recall,precision
 qwen2.5-coder-7b-instruct,4271,486,71,6,6,6,0,0,1.000,1.000
 qwen2.5-coder-14b-instruct,17379,486,71,6,6,6,0,0,1.000,1.000
+qwen2.5-coder-7b-instruct,6810,486,71,6,6,6,0,0,1.000,1.000
+qwen2.5-coder-14b-instruct,16069,486,71,6,6,6,0,0,1.000,1.000
