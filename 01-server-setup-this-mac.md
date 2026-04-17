@@ -69,43 +69,57 @@ Studio cannot silently reload it at a smaller default window:
 
 ```bash
 lms load qwen2.5-coder-7b-instruct \
-  --context-length 40960 \
+  --context-length 32768 \
   --gpu max \
   --parallel 2 \
   --ttl 2592000 \
   -y
 ```
 
+**Also set the per-model GUI default to match:** LM Studio → **My
+Models** → ⚙️ next to `Qwen2.5-Coder-7B-Instruct-4bit` → **Context
+and Offload** → **32768**. This covers JIT auto-loads that bypass the
+CLI (e.g. `/v1/chat/completions` requests that hit the model before
+`recommended-load.sh` has run). Do the same for
+`Qwen2.5-Coder-14B-Instruct-4bit`.
+
 **Why these numbers (updated 2026-04-18 after capability-map bench — see
 `bench/report/BUGFIX-HANDOFF.md` BUG 1):**
 
 - `parallel=2` — matches Claude's typical concurrent tool-call burst.
-- `ctx=40960` — Leg B measured an accepted prompt ceiling of **38 038
-  tokens** (`bench/results/leg-b-ctx-ceiling.csv`); 40 960 gives ~8 %
-  headroom. **Do NOT use 131 072 on 18 GB**: memory pressure from a
-  parallel 14 B load (or any reload under pressure) causes LM Studio to
-  quietly re-open 7 B at its default 4 K window. Subsequent requests
-  then die with `HTTP 400 — greater than context length`. Pinning
-  low-and-explicit at load time prevents the silent reload.
+- `ctx=32768` — the model's **native trained** context. LM Studio's
+  model panel advertises "Model supports up to 32768 tokens" for both
+  7 B and 14 B 4-bit. Going higher (40 960+) requires RoPE
+  extrapolation, which trades quality for headroom on positional
+  encodings the model never saw during training. Leg B saw 38 038
+  accepted at a 131 072 load (i.e. with aggressive RoPE scaling) —
+  fine in theory, but not worth the quality hit for the 5 K of extra
+  headroom. Sticking to native keeps behavior predictable. **Do NOT
+  use 131 072 on 18 GB**: memory pressure from a parallel 14 B load
+  causes LM Studio to quietly re-open 7 B at its default 4 K window;
+  subsequent requests die with `HTTP 400 — greater than context
+  length`. Pinning at native + explicit at load time prevents this.
 - `ttl=2592000` (30 days) — `lms load` has no "never unload" sentinel;
   only `--ttl <seconds>`. The lms default of 1 h lets the model evict
-  during idle gaps, and reloads trigger the same small-ctx pathology.
-  30 days is effectively "keep loaded" for any normal work session.
+  during idle gaps, and reloads trigger the same silent-ctx-drop
+  pathology. 30 days is effectively "keep loaded" for any normal work
+  session.
 
-Resident after warmup: ~4.3 GB weights + ~1–2 GB KV cache ≈ ~6 GB used.
-~8 GB free for the 14 B deep-audit companion or other headroom.
+Resident after warmup: ~4.3 GB weights + ~1 GB KV cache ≈ ~5 GB used.
+~9 GB free for the 14 B deep-audit companion or other headroom.
 
 Verify:
 ```bash
 lms ps
-# qwen2.5-coder-7b-instruct   CONTEXT=40960   PARALLEL=2   TTL=720h
+# qwen2.5-coder-7b-instruct   CONTEXT=32768   PARALLEL=2   TTL=720h
 ```
 
-> **If you need a bigger ctx** — the bench only proved 38 038 accepted.
-> To safely raise the ceiling, re-run Leg B (`node
-> bench/harness/leg-b-ctx-ceiling.mjs`) after each bump and confirm
-> the new ceiling is stable across ≥ 3 back-to-back runs before
-> promoting it here. Do not bump on optimism.
+> **If you ever need >32 K context** — do not bump blindly. Re-run Leg B
+> (`node bench/harness/leg-b-ctx-ceiling.mjs`) at the candidate value
+> and confirm stability across ≥ 3 back-to-back runs. Consider the
+> quality trade-off of RoPE extrapolation before promoting. In
+> practice, escalate to cloud for prompts >32 K rather than stretch
+> the local model.
 
 ### Re-measuring on different hardware
 
@@ -169,7 +183,7 @@ Test without rebooting:
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.subash.lmstudio-server
 sleep 25 && lms ps
-# HEAVY should appear with CONTEXT=40960 PARALLEL=2 TTL=720h.
+# HEAVY should appear with CONTEXT=32768 PARALLEL=2 TTL=720h.
 ```
 
 Logs: `/tmp/lmstudio-server.log` (stdout) and `/tmp/lmstudio-server.err` (stderr).
