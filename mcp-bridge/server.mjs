@@ -23,14 +23,36 @@ if (!LOCAL_URL) {
   console.error('      --env LOCAL_LLM_URL=http://your-server.local:1234/v1/chat/completions');
   process.exit(1);
 }
-const HEAVY_MODEL  = process.env.LOCAL_LLM_MODEL  || 'qwen2.5-coder-7b-instruct';
-const EMBED_MODEL  = process.env.LOCAL_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5';
+const HEAVY_MODEL  = process.env.LOCAL_LLM_MODEL       || 'qwen2.5-coder-7b-instruct';
+const DEEP_MODEL   = process.env.LOCAL_LLM_DEEP_MODEL  || 'qwen2.5-coder-14b-instruct';
+const EMBED_MODEL  = process.env.LOCAL_EMBED_MODEL     || 'text-embedding-nomic-embed-text-v1.5';
 const CAVEMAN_MODE = (process.env.CAVEMAN_MODE || 'on').toLowerCase() !== 'off';
 
 // Semantic index dir — one JSONL per indexed repo root (sha1 of absolute path).
 const INDEX_DIR = process.env.SEMANTIC_INDEX_DIR || path.join(os.homedir(), '.claude', 'semantic-index');
 // Derive the embeddings URL from the chat-completions URL by swapping the path.
 const EMBED_URL = LOCAL_URL.replace(/\/v1\/.*$/, '/v1/embeddings');
+
+// Concurrency caps advertised to the orchestrator via local_capabilities.
+// Grounded in 2026-04-17 probe on M3 Pro 18GB with HEAVY parallel=4:
+//   - short_ask: 8 safe / 16 tolerable (p95 2.9s, 0 fails)
+//   - single_file: 4 safe (matches LM Studio PARALLEL=4 slot cap)
+//   - multi_file:  2 safe (KV + ctx pressure at 128K)
+//   - semantic:    unlimited (no model inference)
+//   - deep:        1 (14B must serialize — peak RAM with 7B = ~15GB, near cap)
+const CONCURRENCY_CAPS = {
+  local_ask_short:         { safe: 8,  ceiling: 16, note: 'max_tokens <= 120' },
+  local_ask_long:          { safe: 4,  ceiling: 4,  note: 'max_tokens > 120'  },
+  local_audit:             { safe: 4,  ceiling: 4,  note: 'single-file, HEAVY' },
+  local_review:            { safe: 4,  ceiling: 4,  note: 'single-file, HEAVY' },
+  local_find:              { safe: 4,  ceiling: 4,  note: 'ripgrep + HEAVY'    },
+  local_summarize:         { safe: 4,  ceiling: 4,  note: 'single/multi file'  },
+  local_feature_audit:     { safe: 2,  ceiling: 3,  note: 'multi-file, HEAVY'  },
+  local_diff_review:       { safe: 2,  ceiling: 3,  note: 'diff size bound'    },
+  local_group_commits:     { safe: 2,  ceiling: 3,  note: 'varies by range'    },
+  local_semantic_search:   { safe: 64, ceiling: 64, note: 'no model inference' },
+  local_deep_audit:        { safe: 1,  ceiling: 1,  note: '14B — serialize; RAM cap' },
+};
 
 // Inspired by JuliusBrussee/caveman — https://github.com/JuliusBrussee/caveman
 // Output-side compression: every reply comes back terse, Claude reads fewer tokens.
@@ -275,6 +297,18 @@ const TOOLS = [
       required: ['root', 'query'],
     },
   },
+  {
+    name: 'local_deep_audit',
+    description: 'Second-opinion audit using the larger DEEP model (Qwen2.5-Coder-14B, ~8.3 GB JIT). Use ONLY as a middle tier before escalating to cloud Claude when local_audit / local_review / local_feature_audit gave a weak or rule-4 result. First call pays ~8s JIT load; subsequent calls fast within LM Studio TTL. SERIALIZE — safe concurrency is 1 (see local_capabilities.concurrency). RETURNS an audit report.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string' },
+        checklist: { type: 'string', description: 'What to audit for.' },
+      },
+      required: ['file_path', 'checklist'],
+    },
+  },
 ];
 
 // --- Semantic search helpers ---------------------------------------------
@@ -340,6 +374,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
               'clustering commits into PR-sized groups',
             ],
           },
+          deep_model: {
+            name: DEEP_MODEL,
+            best_for: ['rule-4 escalation before cloud', 'second opinion when HEAVY gave a weak reply'],
+            note: 'JIT-loaded by LM Studio on first local_deep_audit call (~8s). SERIALIZE — concurrency 1.',
+          },
+          concurrency: CONCURRENCY_CAPS,
+          concurrency_hint: 'Orchestrator MUST respect safe values when fanning out local_* calls in parallel (e.g. per-issue swarm). Exceeding safe is tolerated up to ceiling; above ceiling queueing and latency collapse. local_deep_audit MUST be serialized.',
           tools: {
             local_ask:            'HEAVY — free-form prompt, reasoning/analysis',
             local_audit:          'HEAVY — security/bug audit of a SINGLE file',
@@ -350,6 +391,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             local_diff_review:    'HEAVY — review a git diff between two refs',
             local_group_commits:  'HEAVY — cluster commits into PR-sized groups by theme',
             local_semantic_search:'EMBED — nomic-embed similarity over a pre-built index; zero HEAVY tokens. Requires `node scripts/semantic-index.mjs <root>` once.',
+            local_deep_audit:     'DEEP (14B) — second-opinion audit when HEAVY was weak/rule-4. Serialize.',
           },
           routing_hints: [
             'File review / audit / feature audit / diff review / commit grouping -> use the purpose-built tool above.',
@@ -551,6 +593,18 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           return `- [${s.toFixed(3)}] ${c.path}:${c.start}-${c.end} — ${snippet}`;
         });
         out = `Top ${top.length} matches for: ${a.query}\n\n${top.join('\n')}`;
+        break;
+      }
+
+      case 'local_deep_audit': {
+        const code = await fs.readFile(a.file_path, 'utf8');
+        out = await askLocal(
+          'You are a senior code auditor giving a second opinion. Assume a smaller model has already reviewed this file and missed or mis-classified something. Be direct: concrete issues only, each finding at most once, cite path:line. If you confirm the smaller model was right, say so and stop.',
+          `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${code}\n\`\`\`\n\n` +
+          `Output format:\n- [SEVERITY] path:line — finding (one line each)\n` +
+          `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
+          { model: DEEP_MODEL, caveman: false, penalties: 'structured', maxTokens: 1800 },
+        );
         break;
       }
 
