@@ -373,10 +373,15 @@ function snapFindingLinesByGrep(raw, fileMap) {
     const symbols = extractFindingSymbols(f.text);
     if (!symbols.length) { out.push(line); continue; }
 
+    // Case-insensitive match: the model often describes an algorithm in
+    // English case ("MD5", "Argon2") while the code spells it in library
+    // case ("md5", "argon2"). Both sides lowered so includes() matches.
+    const symLower = symbols.map((s) => s.toLowerCase());
     const srcLines = content.split('\n');
     const hits = [];
     for (let i = 0; i < srcLines.length; i++) {
-      if (symbols.some((s) => srcLines[i].includes(s))) hits.push(i + 1);
+      const l = srcLines[i].toLowerCase();
+      if (symLower.some((s) => l.includes(s))) hits.push(i + 1);
     }
     if (hits.length === 0) { out.push(line); continue; }
 
@@ -432,18 +437,21 @@ function verifyAndSnapFindings(raw, fileMap) {
     const symbols = extractFindingSymbols(f.text);
     if (!symbols.length) { out.push(line); continue; }
 
+    // Case-insensitive — see snapFindingLinesByGrep for rationale.
+    const symLower = symbols.map((s) => s.toLowerCase());
     const srcLines = content.split('\n');
     const wStart = Math.max(0, f.line - 6);       // cited line is 1-based; window is ±5
     const wEnd = Math.min(srcLines.length, f.line + 5);
     const inWindow = srcLines
       .slice(wStart, wEnd)
-      .some((l) => symbols.some((s) => l.includes(s)));
+      .some((l) => { const lo = l.toLowerCase(); return symLower.some((s) => lo.includes(s)); });
     if (inWindow) { out.push(line); continue; }
 
-    // Not in the ±3 window. Scan whole file for exactly-one match.
+    // Not in the ±5 window. Scan whole file for exactly-one match.
     const hits = [];
     for (let i = 0; i < srcLines.length; i++) {
-      if (symbols.some((s) => srcLines[i].includes(s))) hits.push(i + 1);
+      const lo = srcLines[i].toLowerCase();
+      if (symLower.some((s) => lo.includes(s))) hits.push(i + 1);
     }
     if (hits.length === 1) {
       out.push(
@@ -909,14 +917,50 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         const trace = buildTrace('local_audit', HEAVY_MODEL, a);
         const code = await fs.readFile(a.file_path, 'utf8');
         const numbered = numberLines(code);
-        const raw = await askLocal(
-          `You are a careful code auditor. Report concrete issues only. No filler. Each finding appears at most once.\n\n${LINE_NUMBER_HINT}`,
-          `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
-          `Output format:\n- [SEVERITY] path:line — finding (one line each)\n` +
-          `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
-          { caveman: false, penalties: 'structured', maxTokens: 1200, trace },
-        );
-        out = postProcessFindings(raw, { [a.file_path]: code }, trace);
+        // Item 4 (2026-04-17): mirror feature_audit JSON-first pattern here so
+        // snap/verify/dedup see the canonical bracket format, and so clients
+        // get per-finding remediation text. Falls back to raw markdown parse
+        // on two JSON failures.
+        const auditSystem =
+          `You are a careful code auditor. Report concrete issues only. No filler. ` +
+          `Each finding appears at most once. Output ONLY a JSON array — no prose, no markdown fences.\n\n` +
+          LINE_NUMBER_HINT;
+        const auditBody =
+          `Audit this file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
+          `Output a JSON array of findings with EXACTLY this shape:\n` +
+          `[\n` +
+          `  {\n` +
+          `    "file": "${a.file_path}",\n` +
+          `    "line": 42,\n` +
+          `    "severity": "BLOCKER" | "MAJOR" | "MINOR" | "NIT",\n` +
+          `    "symbol": "name of the function/class/variable at that line, or empty string",\n` +
+          `    "problem": "one sentence describing the issue",\n` +
+          `    "remediation": "one sentence describing how to fix it"\n` +
+          `  }\n` +
+          `]\n` +
+          `Rules: no prose outside the array, no markdown fences, stop after the closing \`]\`.`;
+        const rawAudit = await askLocal(auditSystem, auditBody, {
+          caveman: false, penalties: 'structured', maxTokens: 1800, trace,
+        });
+        let parsedAudit = parseFindingsJson(rawAudit);
+        dumpFilterStage(trace, 'post-json-first', { parsed: parsedAudit, ok: Array.isArray(parsedAudit) });
+        if (!parsedAudit) {
+          const repairBody =
+            `Your previous reply was not valid JSON. Output ONLY the JSON array ` +
+            `described above. No prose, no markdown fences. Start with \`[\` and ` +
+            `end with \`]\`.\n\nPrevious reply (for reference only):\n${rawAudit.slice(0, 2000)}`;
+          const repaired = await askLocal(auditSystem, repairBody, {
+            caveman: false, penalties: 'structured', maxTokens: 1800, trace,
+          });
+          parsedAudit = parseFindingsJson(repaired);
+          dumpFilterStage(trace, 'post-json-retry', { parsed: parsedAudit, ok: Array.isArray(parsedAudit) });
+          if (!parsedAudit) {
+            console.error('[local-llm-bridge] local_audit: JSON parse failed twice; falling back to markdown parse');
+            out = postProcessFindings(rawAudit, { [a.file_path]: code }, trace);
+            break;
+          }
+        }
+        out = postProcessFindings(renderFindingsMarkdown(parsedAudit), { [a.file_path]: code }, trace);
         break;
       }
 
@@ -1160,14 +1204,65 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         const trace = buildTrace('local_deep_audit', DEEP_MODEL, a);
         const code = await fs.readFile(a.file_path, 'utf8');
         const numbered = numberLines(code);
-        const rawDeep = await askLocal(
-          `You are a senior code auditor giving a second opinion. Assume a smaller model has already reviewed this file and missed or mis-classified something. Be direct: concrete issues only, each finding at most once, cite path:line. If you confirm the smaller model was right, say so and stop.\n\n${LINE_NUMBER_HINT}`,
-          `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
-          `Output format:\n- [SEVERITY] path:line — finding (one line each)\n` +
-          `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
-          { model: DEEP_MODEL, caveman: false, penalties: 'structured', maxTokens: 1800, trace },
-        );
-        out = postProcessFindings(rawDeep, { [a.file_path]: code }, trace);
+        // Item 4 (2026-04-17): same JSON-first pattern as local_audit.
+        // 14B needs the structured prompt more than 7B does — pre-Item-4,
+        // 14B was emitting ``[BLOCKER] `  9|` — text`` (backtick-wrapped
+        // line-only, no path), which parseFindingLine could not read, so
+        // snap/verify/dedup were all inert on deep_audit output.
+        const deepSystem =
+          `You are a senior code auditor giving a second opinion. Assume a smaller model has already reviewed this file and missed or mis-classified something. Be direct — concrete issues only, each finding at most once. If you confirm the smaller model was right, return an empty JSON array \`[]\`.\n\n` +
+          `Output ONLY a JSON array — no prose, no markdown fences.\n\n` +
+          LINE_NUMBER_HINT;
+        const deepBody =
+          `Audit this file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
+          `Output a JSON array of findings with EXACTLY this shape:\n` +
+          `[\n` +
+          `  {\n` +
+          `    "file": "${a.file_path}",\n` +
+          `    "line": 42,\n` +
+          `    "severity": "BLOCKER" | "MAJOR" | "MINOR" | "NIT",\n` +
+          `    "symbol": "name of the function/class/variable at that line, or empty string",\n` +
+          `    "problem": "one sentence describing the issue",\n` +
+          `    "remediation": "one sentence describing how to fix it"\n` +
+          `  }\n` +
+          `]\n` +
+          `Rules: no prose outside the array, no markdown fences, stop after the closing \`]\`. If you have nothing to add, output exactly \`[]\`.`;
+        const rawDeep = await askLocal(deepSystem, deepBody, {
+          model: DEEP_MODEL, caveman: false, penalties: 'structured', maxTokens: 2200, trace,
+        });
+        let parsedDeep = parseFindingsJson(rawDeep);
+        dumpFilterStage(trace, 'post-json-first', { parsed: parsedDeep, ok: Array.isArray(parsedDeep) });
+        // parseFindingsJson returns null for empty arrays (out.length check); that's
+        // a valid "no findings" result from deep_audit — treat it as success.
+        const looksLikeEmptyJson = /^\s*\[\s*\]\s*$/.test(rawDeep.trim()) ||
+          /```(?:json)?\s*\n\s*\[\s*\]\s*\n```/.test(rawDeep.trim());
+        if (!parsedDeep && !looksLikeEmptyJson) {
+          const repairBody =
+            `Your previous reply was not valid JSON. Output ONLY the JSON array ` +
+            `described above. No prose, no markdown fences. Start with \`[\` and ` +
+            `end with \`]\`. If you have nothing to add, output exactly \`[]\`.\n\n` +
+            `Previous reply (for reference only):\n${rawDeep.slice(0, 2000)}`;
+          const repaired = await askLocal(deepSystem, repairBody, {
+            model: DEEP_MODEL, caveman: false, penalties: 'structured', maxTokens: 2200, trace,
+          });
+          parsedDeep = parseFindingsJson(repaired);
+          const repairedEmpty = /^\s*\[\s*\]\s*$/.test(repaired.trim()) ||
+            /```(?:json)?\s*\n\s*\[\s*\]\s*\n```/.test(repaired.trim());
+          dumpFilterStage(trace, 'post-json-retry', { parsed: parsedDeep, ok: Array.isArray(parsedDeep) || repairedEmpty });
+          if (!parsedDeep) {
+            if (repairedEmpty) {
+              out = 'No additional findings. Smaller model\'s audit stands.';
+              break;
+            }
+            console.error('[local-llm-bridge] local_deep_audit: JSON parse failed twice; falling back to markdown parse');
+            out = postProcessFindings(rawDeep, { [a.file_path]: code }, trace);
+            break;
+          }
+        } else if (!parsedDeep && looksLikeEmptyJson) {
+          out = 'No additional findings. Smaller model\'s audit stands.';
+          break;
+        }
+        out = postProcessFindings(renderFindingsMarkdown(parsedDeep), { [a.file_path]: code }, trace);
         break;
       }
 

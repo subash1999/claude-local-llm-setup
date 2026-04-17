@@ -1,0 +1,6 @@
+- [BLOCKER] /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:9 — SQL concatenation — injection risk. | fix: Use parameterized queries to prevent SQL injection.
+- [MAJOR] /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:14 — Weak hash (md5) for passwords. | fix: Use a stronger hashing algorithm like bcrypt or Argon2.
+- [MAJOR] /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:20 — Off-by-one — accepts count+1 items. | fix: Change the loop condition to `i < max`.
+- [MAJOR] /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:28 — Missing null check on optional chain result. | fix: Remove the non-null assertion operator `as string` and handle the case where `user.profile?.name` is undefined.
+- [MAJOR] /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:37 — Promise rejection silently swallowed. | fix: Log the error or handle it appropriately within the catch block.
+- [BLOCKER] /Users/subash/claude-local-llm-setup/bench/fixtures/planted-bugs.ts:41 — Hardcoded secret. | fix: Remove the hardcoded secret and use environment variables or a secure vault.

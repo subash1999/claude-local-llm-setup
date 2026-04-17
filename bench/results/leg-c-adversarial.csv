@@ -19,3 +19,7 @@ qwen2.5-coder-7b-instruct,empty,2395,200,73,3,0,1,true,true,11
 qwen2.5-coder-7b-instruct,repetition-bait,1299,200,466,3,0,1,true,true,11
 qwen2.5-coder-7b-instruct,binary,398,200,90,3,0,1,true,true,11
 qwen2.5-coder-7b-instruct,huge,5924,200,2076,3,0,1,true,true,11
+qwen2.5-coder-7b-instruct,empty,2372,200,73,3,0,1,true,true,11
+qwen2.5-coder-7b-instruct,repetition-bait,1313,200,466,3,0,1,true,true,11
+qwen2.5-coder-7b-instruct,binary,404,200,90,3,0,1,true,true,11
+qwen2.5-coder-7b-instruct,huge,5899,200,2076,3,0,1,true,true,11
