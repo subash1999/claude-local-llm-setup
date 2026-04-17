@@ -170,6 +170,21 @@ function capText(s) {
     : s;
 }
 
+// Fix G (2026-04-17 bench BUG 3): prefix every source line with a fixed-width
+// number so the model doesn't have to count. Leg E showed 7B reporting bugs
+// systematically ~4 lines early (counting from function body, skipping
+// imports/comments); 14B drifted 1-3. With line numbers visible, the model
+// reads them instead of counting, and this fix addresses 7B + 14B together.
+function numberLines(content) {
+  return content
+    .split('\n')
+    .map((l, i) => `${String(i + 1).padStart(4, ' ')}| ${l}`)
+    .join('\n');
+}
+const LINE_NUMBER_HINT =
+  'Source lines are prefixed with a 4-wide line number and a pipe (e.g. `  42| const x = 1`). ' +
+  'When you cite a location, use the EXACT number shown — do not count, do not guess.';
+
 const TOOLS = [
   {
     name: 'local_capabilities',
@@ -456,9 +471,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
       case 'local_audit': {
         const code = await fs.readFile(a.file_path, 'utf8');
+        const numbered = numberLines(code);
         out = await askLocal(
-          'You are a careful code auditor. Report concrete issues only. No filler. Each finding appears at most once.',
-          `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${code}\n\`\`\`\n\n` +
+          `You are a careful code auditor. Report concrete issues only. No filler. Each finding appears at most once.\n\n${LINE_NUMBER_HINT}`,
+          `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
           `Output format:\n- [SEVERITY] path:line — finding (one line each)\n` +
           `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
           { caveman: false, penalties: 'structured', maxTokens: 1200 },
@@ -468,9 +484,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
       case 'local_review': {
         const code = await fs.readFile(a.file_path, 'utf8');
+        const numbered = numberLines(code);
         out = await askLocal(
-          'You are an experienced code reviewer. Be direct. Approve or request changes with reasons. Each finding appears at most once.',
-          `Review file per these instructions:\n\n${a.instructions}\n\nFILE: ${a.file_path}\n\`\`\`\n${code}\n\`\`\`\n\n` +
+          `You are an experienced code reviewer. Be direct. Approve or request changes with reasons. Each finding appears at most once.\n\n${LINE_NUMBER_HINT}`,
+          `Review file per these instructions:\n\n${a.instructions}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
           `Output format:\nVERDICT: APPROVE | REQUEST CHANGES\nThen list findings:\n- [SEVERITY] path:line — finding`,
           { caveman: false, penalties: 'structured', maxTokens: 1500 },
         );
@@ -537,11 +554,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           const trimmed = content.length > perFileCap
             ? content.slice(0, perFileCap) + '\n...[file truncated at 200 KB]...'
             : content;
-          chunks.push(`=== ${p} ===\n${trimmed}`);
+          chunks.push(`=== ${p} ===\n${numberLines(trimmed)}`);
           total += trimmed.length;
         }
         out = await askLocal(
-          'You audit feature implementations across multiple files as a single unit. Report concrete findings with file:line references. Be direct — no filler, no restating the spec. Each finding appears at most once.',
+          `You audit feature implementations across multiple files as a single unit. Report concrete findings with file:line references. Be direct — no filler, no restating the spec. Each finding appears at most once.\n\n${LINE_NUMBER_HINT}`,
           capText(
             `FEATURE SPEC:\n${a.spec}\n\n` +
             `Audit the files below AS A SET for:\n` +
@@ -655,9 +672,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
       case 'local_deep_audit': {
         const code = await fs.readFile(a.file_path, 'utf8');
+        const numbered = numberLines(code);
         out = await askLocal(
-          'You are a senior code auditor giving a second opinion. Assume a smaller model has already reviewed this file and missed or mis-classified something. Be direct: concrete issues only, each finding at most once, cite path:line. If you confirm the smaller model was right, say so and stop.',
-          `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${code}\n\`\`\`\n\n` +
+          `You are a senior code auditor giving a second opinion. Assume a smaller model has already reviewed this file and missed or mis-classified something. Be direct: concrete issues only, each finding at most once, cite path:line. If you confirm the smaller model was right, say so and stop.\n\n${LINE_NUMBER_HINT}`,
+          `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
           `Output format:\n- [SEVERITY] path:line — finding (one line each)\n` +
           `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
           { model: DEEP_MODEL, caveman: false, penalties: 'structured', maxTokens: 1800 },
