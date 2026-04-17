@@ -63,19 +63,26 @@ JIT-load).
 A starter tool implementation goes in `mcp-bridge/server.mjs`; the VL
 endpoint accepts base64 images via the same OpenAI chat completions API.
 
-### B2. nomic-embed-text-v1.5 — already loaded
+### B2. nomic-embed-text-v1.5 — **SHIPPED (2026-04-17)**
 
-You already have the Nomic embedding model resident (84 MB). Add a
-`local_semantic_search` tool that embeds your repo files once into a
-local SQLite vector store and answers
-"which file is conceptually about X" faster than `local_find`.
+The Nomic embedding model is already resident (84 MB). The
+`local_semantic_search` tool embeds a repo's files into a JSONL vector index
+and answers "which chunk is conceptually about X" where `local_find`'s
+ripgrep prefilter fails on natural-language queries.
 
-This is the single highest-leverage addition for large repos —
-`local_find`'s ripgrep prefilter breaks down on natural-language queries
-that don't contain the obvious keywords.
+Usage:
+```bash
+# One-time per repo (rebuild after large changes):
+node scripts/semantic-index.mjs /path/to/your/repo
+# Then Claude calls local_semantic_search({ root, query, top_k }) via MCP.
+```
 
-Starter implementation lives at `scripts/bench/future/semantic-search/`
-(not yet shipped). Estimate 2–3 hours of work.
+Index location: `~/.claude/semantic-index/<sha1(abs-root)>.jsonl`.
+Storage: ~4 MB per 1000 chunks (768-dim f32 + text). Zero HEAVY model tokens
+on query — pure embedding cosine.
+
+Regression test: `node scripts/bench/semantic-search.test.mjs` (5 canonical
+queries over this repo; exits non-zero on regression).
 
 ### B3. whisper-large-v3 (mlx-whisper) — audio transcription
 

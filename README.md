@@ -97,7 +97,8 @@ Claude Code on the client has **three usage modes**:
 | **`06-free-subagents-for-claude.md`** | **MCP bridge that routes audits/reviews/file-finds to the home Mac — biggest subscription saver** |
 | `07-research-and-sources.md` | Original (v1) comparison tables, superseded by doc 04 |
 | **`08-offload-more.md`** | **What to run in the 8 GB of free memory — companion models, escalation tier, new MCP tools** |
-| `scripts/bench/` | **Reproducible bench: `bench.mjs`, `bench_all.sh`, and `results-2026-04-17.json`** |
+| `scripts/bench/` | **Reproducible bench: `bench.mjs`, `bench_all.sh`, `results-2026-04-17.json`, `semantic-search.test.mjs`** |
+| `scripts/semantic-index.mjs` | **Embed a repo once via nomic → JSONL index that `local_semantic_search` queries** |
 
 ## Quick start (one command per machine)
 
