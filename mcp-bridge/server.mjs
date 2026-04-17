@@ -86,7 +86,13 @@ const PENALTY_PROFILES = {
   structured: { frequency_penalty: 1.0, presence_penalty: 0.5, repetition_penalty: 1.20 },
 };
 
-async function askLocal(system, user, {
+// LM Studio emits HTTP 400 with this phrase when the prompt tokens exceed
+// the currently-loaded context window. Fix B (BUG 1) catches it and retries
+// once with a halved user message, then surfaces LOCAL_CTX_OVERFLOW so the
+// client can cloud-fallback per rule 10 instead of guessing at "rule-4 doubt".
+const CTX_OVERFLOW_MARKER = 'greater than context length';
+
+async function _askLocalOnce(system, user, {
   maxTokens = 4096,
   model = HEAVY_MODEL,
   temperature = 0.2,
@@ -114,10 +120,55 @@ async function askLocal(system, user, {
       stop: ['[thing]', '[action]', '[reason]', '[next step]', '[loop]', '[fix loop]', '\n\n\n\n', ...extraStop],
     }),
   });
-  if (!r.ok) throw new Error(`local server ${r.status}: ${await r.text()}`);
+  if (!r.ok) {
+    const body = await r.text();
+    if (r.status === 400 && body.includes(CTX_OVERFLOW_MARKER)) {
+      const e = new Error(`context overflow: ${body}`);
+      e.code = 'LOCAL_CTX_OVERFLOW_RAW';
+      throw e;
+    }
+    throw new Error(`local server ${r.status}: ${body}`);
+  }
   const j = await r.json();
   const raw = j.choices[0].message.content ?? '';
   return postProcess(stripThink(raw));
+}
+
+async function askLocal(system, user, opts = {}) {
+  try {
+    return await _askLocalOnce(system, user, opts);
+  } catch (err) {
+    if (err.code !== 'LOCAL_CTX_OVERFLOW_RAW') throw err;
+    // LM Studio silently reloaded the model at a smaller context (seen
+    // 2026-04-17: 38k → 4k between legs). Retry ONCE at roughly half the user
+    // content so a transient reload doesn't fail an otherwise-safe request.
+    // Keep the first half — system prompt + instructions + the spec/checklist
+    // live up front; losing the tail is cheaper than losing the framing.
+    const halfLen = Math.floor(user.length / 2);
+    const halved = user.slice(0, halfLen) +
+      '\n\n...[input halved: local context reloaded smaller than expected — see LOCAL_CTX_OVERFLOW handling in server.mjs]...';
+    const inTok = Math.round(user.length / 3);
+    const reTok = Math.round(halved.length / 3);
+    console.error(
+      `[local-llm-bridge] LOCAL_CTX_OVERFLOW_RAW — retrying at 50% input ` +
+      `(~${inTok} → ~${reTok} tokens est.). First err: ${err.message.slice(0, 200)}`
+    );
+    try {
+      return await _askLocalOnce(system, halved, opts);
+    } catch (err2) {
+      if (err2.code === 'LOCAL_CTX_OVERFLOW_RAW') {
+        const e = new Error(
+          `LOCAL_CTX_OVERFLOW: input too large for currently-loaded context ` +
+          `even after 50% retry. Original ~${inTok} tok, retry ~${reTok} tok. ` +
+          `Loaded model may have been auto-reloaded at a smaller window. ` +
+          `Cloud-fallback recommended (rule 10).`
+        );
+        e.code = 'LOCAL_CTX_OVERFLOW';
+        throw e;
+      }
+      throw err2;
+    }
+  }
 }
 
 // Qwen3 emits <think>...</think> reasoning before the answer. Claude should
