@@ -102,6 +102,20 @@ MCP tools from `local-llm-bridge` → offload work to home Mac (Qwen2.5-Coder-7B
 
    Same orchestrator-doubt rule applies to subagent output: if a Task agent returns results and the orchestrator has concrete doubt (contradicts spot-check, task is production-critical, downstream irreversible), re-do on cloud — don't silently accept a subagent's reply any more than you'd silently accept a local reply.
 
+10. **Universal cloud-fallback invariant (supersedes rule 1 silent-skip).** For ANY task shape, at ANY point in any ladder, escalate to cloud IMMEDIATELY on EITHER condition:
+
+    **(a) Local inaccessible.** `ECONNREFUSED` / `ETIMEDOUT` / DNS fail / HTTP 4xx/5xx from bridge / MCP tool missing / stdio bridge dead / model-not-loaded error / server JIT-swapping another model. Any network or MCP-layer failure means "cloud for this call" — not "skip the whole session silently".
+
+    **(b) Doubt about the reply.** Rule-4 literal triggers (empty / incoherent / hallucinated refs / contradictions / user pushback) AND the orchestrator-doubt triggers in rule 4 (spot-check contradiction / prod-critical task / irreversible downstream / repetition-loop signal / any concrete correctness doubt). Well-formed surface is not proof of correctness.
+
+    **One-line user-visible note is REQUIRED on every fallback**, no exceptions:
+    - Inaccessibility: `"local offload down on <tool>: <error> — cloud fallback"`
+    - Doubt: `"doubt <one-phrase reason> on <tool> — cloud retry"`
+
+    **Never retry the same local tool on the same task after a fallback** — the never-loop rule from rule 4 applies here too. If the session sees the same tool fail twice on different inputs → also flag 🔴 in trust-map per rule 7 downgrade rule.
+
+    **This rule overrides rule 1's "silent-skip entire policy" language.** Bootstrap failure of `local_capabilities` does NOT mean "pretend tools don't exist all session". Individual tool calls may still work — attempt the matching local tool on task-shape match and fall back per this rule if it errors. One-line note per fallback. Silent skip is NOT acceptable behavior.
+
 <!-- user-trust-map START (preserved across regen) -->
 _User-maintained. Edits here survive reinstall. Fill after rule 7 quick-check. Default: 🟢 until evidence demotes._
 
