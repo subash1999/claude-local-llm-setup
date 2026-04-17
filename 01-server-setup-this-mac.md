@@ -64,22 +64,48 @@ lms server start --bind 0.0.0.0 --port 1234 --cors
 
 ## Step 5 — Load HEAVY
 
-Load HEAVY with the empirically-measured optimal flags:
+Load HEAVY with an **explicit** context length and a **long TTL** so LM
+Studio cannot silently reload it at a smaller default window:
+
 ```bash
-# parallel=2 lets Claude issue 2 concurrent tool calls cleanly
-lms load qwen2.5-coder-7b-instruct --context-length 131072 --gpu max --parallel 2 -y
+lms load qwen2.5-coder-7b-instruct \
+  --context-length 40960 \
+  --gpu max \
+  --parallel 2 \
+  --ttl 2592000 \
+  -y
 ```
 
-**Why these numbers (updated 2026-04-17 after 9-model bench):**
-- `parallel=2`: matches Claude's typical concurrent tool-call burst.
-- `ctx=131072`: 7B at 4-bit has plenty of headroom on 18 GB; 128K context means a whole feature audit can bundle into one call.
-- Resident after warmup: ~4.3 GB weights + ~2 GB KV cache → ~6 GB used. ~8 GB free for a parallel companion model or further headroom.
+**Why these numbers (updated 2026-04-18 after capability-map bench — see
+`bench/report/BUGFIX-HANDOFF.md` BUG 1):**
+
+- `parallel=2` — matches Claude's typical concurrent tool-call burst.
+- `ctx=40960` — Leg B measured an accepted prompt ceiling of **38 038
+  tokens** (`bench/results/leg-b-ctx-ceiling.csv`); 40 960 gives ~8 %
+  headroom. **Do NOT use 131 072 on 18 GB**: memory pressure from a
+  parallel 14 B load (or any reload under pressure) causes LM Studio to
+  quietly re-open 7 B at its default 4 K window. Subsequent requests
+  then die with `HTTP 400 — greater than context length`. Pinning
+  low-and-explicit at load time prevents the silent reload.
+- `ttl=2592000` (30 days) — `lms load` has no "never unload" sentinel;
+  only `--ttl <seconds>`. The lms default of 1 h lets the model evict
+  during idle gaps, and reloads trigger the same small-ctx pathology.
+  30 days is effectively "keep loaded" for any normal work session.
+
+Resident after warmup: ~4.3 GB weights + ~1–2 GB KV cache ≈ ~6 GB used.
+~8 GB free for the 14 B deep-audit companion or other headroom.
 
 Verify:
 ```bash
 lms ps
-# Should list qwen2.5-coder-7b-instruct with CONTEXT=131072 PARALLEL=2.
+# qwen2.5-coder-7b-instruct   CONTEXT=40960   PARALLEL=2   TTL=720h
 ```
+
+> **If you need a bigger ctx** — the bench only proved 38 038 accepted.
+> To safely raise the ceiling, re-run Leg B (`node
+> bench/harness/leg-b-ctx-ceiling.mjs`) after each bump and confirm
+> the new ceiling is stable across ≥ 3 back-to-back runs before
+> promoting it here. Do not bump on optimism.
 
 ### Re-measuring on different hardware
 
@@ -143,7 +169,7 @@ Test without rebooting:
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.subash.lmstudio-server
 sleep 25 && lms ps
-# HEAVY should appear with CONTEXT=32768 PARALLEL=2.
+# HEAVY should appear with CONTEXT=40960 PARALLEL=2 TTL=720h.
 ```
 
 Logs: `/tmp/lmstudio-server.log` (stdout) and `/tmp/lmstudio-server.err` (stderr).
@@ -216,8 +242,18 @@ vm_stat | head     # Pages free should be > 30000 pages (~500 MB min)
 ## Troubleshooting
 
 **Model fails to load / crashes:**
-- Drop context length: `lms load qwen2.5-coder-7b-instruct --context-length 16384`
+- Drop context length: `lms load qwen2.5-coder-7b-instruct --context-length 16384 --ttl 2592000`
 - Switch to the fallback model: see `04-fallback-gpt-oss-20b.md`
+
+**`HTTP 400 — greater than context length` mid-session:**
+- Means LM Studio reloaded the model at a smaller default context window
+  (e.g. under memory pressure from loading a second model). Symptoms:
+  `lms ps` shows `CONTEXT=4096` when you set 40960 earlier.
+- Fix: re-run Step 5's `lms load` command (explicit `--context-length`
+  and `--ttl 2592000`). The bridge-side retry-once path in
+  `mcp-bridge/server.mjs` will mask a single occurrence, but repeated
+  400s mean the pinned TTL / ctx is not being honored — verify with
+  `lms ps`.
 
 **Server unreachable from other laptop:**
 - Confirm both machines on same Wi-Fi network
