@@ -10,6 +10,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import fetch from 'node-fetch';
 import fs from 'node:fs/promises';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
@@ -99,8 +100,12 @@ async function _askLocalOnce(system, user, {
   caveman = CAVEMAN_MODE,
   penalties = 'default',
   extraStop = [],
+  trace = null,
 } = {}) {
   const p = PENALTY_PROFILES[penalties] || PENALTY_PROFILES.default;
+  // trace.model may be HEAVY by default from the handler; override to the
+  // model actually being called so the JSONL reflects reality (deep_audit).
+  const effTrace = trace ? { ...trace, model } : null;
   const r = await fetch(LOCAL_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -131,7 +136,10 @@ async function _askLocalOnce(system, user, {
   }
   const j = await r.json();
   const raw = j.choices[0].message.content ?? '';
-  return postProcess(stripThink(raw));
+  dumpFilterStage(effTrace, 'raw-model', { text: raw });
+  const processed = postProcess(stripThink(raw));
+  dumpFilterStage(effTrace, 'post-think', { text: processed });
+  return processed;
 }
 
 async function askLocal(system, user, opts = {}) {
@@ -219,6 +227,50 @@ function capText(s) {
   return s.length > MAX_CONTEXT_BYTES
     ? s.slice(0, MAX_CONTEXT_BYTES) + '\n\n...[truncated — input exceeded 500 KB]...'
     : s;
+}
+
+// Item 1 (Round 2, 2026-04-17): pre-filter diagnostic logging. Gated on
+// LOCAL_LLM_DEBUG_DIR — unset = no-op, set = append one JSONL line per stage
+// to ${LOCAL_LLM_DEBUG_DIR}/local-llm-bridge-filters-<call_ts>.jsonl. One file
+// per tool call. Stages captured: raw-model (pre stripThink), post-think,
+// post-json-first / post-json-retry (feature_audit only), pre-e, post-e,
+// post-d. Use jq to diff stages and diagnose Fix E over-drops vs model
+// never-emit. Zero behavior change when env unset.
+function dumpFilterStage(trace, stage, payload) {
+  const dir = process.env.LOCAL_LLM_DEBUG_DIR;
+  if (!dir || !trace) return;
+  try {
+    mkdirSync(dir, { recursive: true });
+    const entry = {
+      ts_iso: new Date().toISOString(),
+      call_ts: trace.ts,
+      tool: trace.tool,
+      model: trace.model,
+      input_hash: trace.input_hash,
+      stage,
+      ...payload,
+    };
+    const filename = path.join(dir, `local-llm-bridge-filters-${trace.ts}.jsonl`);
+    appendFileSync(filename, JSON.stringify(entry) + '\n');
+  } catch (e) {
+    console.error(`[local-llm-bridge] dumpFilterStage(${stage}) failed: ${e.message}`);
+  }
+}
+function buildTrace(tool, model, args) {
+  return {
+    ts: Date.now(),
+    tool,
+    model,
+    input_hash: crypto
+      .createHash('sha1')
+      .update(JSON.stringify(args ?? null))
+      .digest('hex')
+      .slice(0, 12),
+  };
+}
+function parseAllFindingLines(raw) {
+  if (!raw) return [];
+  return raw.split('\n').map(parseFindingLine).filter(Boolean);
 }
 
 // Fix G (2026-04-17 bench BUG 3): prefix every source line with a fixed-width
@@ -356,8 +408,13 @@ function verifyAndSnapFindings(raw, fileMap) {
   return out.join('\n');
 }
 
-function postProcessFindings(raw, fileMap = {}) {
-  return dedupAndBreakLoop(verifyAndSnapFindings(raw, fileMap));
+function postProcessFindings(raw, fileMap = {}, trace = null) {
+  dumpFilterStage(trace, 'pre-e', { text: raw, findings: parseAllFindingLines(raw) });
+  const afterE = verifyAndSnapFindings(raw, fileMap);
+  dumpFilterStage(trace, 'post-e', { text: afterE, findings: parseAllFindingLines(afterE) });
+  const afterD = dedupAndBreakLoop(afterE);
+  dumpFilterStage(trace, 'post-d', { text: afterD, findings: parseAllFindingLines(afterD) });
+  return afterD;
 }
 
 // Fix F (2026-04-17 bench BUG 2): structured JSON output for local_feature_audit
@@ -770,7 +827,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         break;
 
       case 'local_ask': {
-        const opts = {};
+        const trace = buildTrace('local_ask', HEAVY_MODEL, a);
+        const opts = { trace };
         if (typeof a.caveman     === 'boolean') opts.caveman     = a.caveman;
         if (typeof a.max_tokens  === 'number')  opts.maxTokens   = a.max_tokens;
         if (typeof a.temperature === 'number')  opts.temperature = a.temperature;
@@ -782,6 +840,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       }
 
       case 'local_audit': {
+        const trace = buildTrace('local_audit', HEAVY_MODEL, a);
         const code = await fs.readFile(a.file_path, 'utf8');
         const numbered = numberLines(code);
         const raw = await askLocal(
@@ -789,26 +848,28 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
           `Output format:\n- [SEVERITY] path:line — finding (one line each)\n` +
           `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
-          { caveman: false, penalties: 'structured', maxTokens: 1200 },
+          { caveman: false, penalties: 'structured', maxTokens: 1200, trace },
         );
-        out = postProcessFindings(raw, { [a.file_path]: code });
+        out = postProcessFindings(raw, { [a.file_path]: code }, trace);
         break;
       }
 
       case 'local_review': {
+        const trace = buildTrace('local_review', HEAVY_MODEL, a);
         const code = await fs.readFile(a.file_path, 'utf8');
         const numbered = numberLines(code);
         const raw = await askLocal(
           `You are an experienced code reviewer. Be direct. Approve or request changes with reasons. Each finding appears at most once.\n\n${LINE_NUMBER_HINT}`,
           `Review file per these instructions:\n\n${a.instructions}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
           `Output format:\nVERDICT: APPROVE | REQUEST CHANGES\nThen list findings:\n- [SEVERITY] path:line — finding`,
-          { caveman: false, penalties: 'structured', maxTokens: 1500 },
+          { caveman: false, penalties: 'structured', maxTokens: 1500, trace },
         );
-        out = postProcessFindings(raw, { [a.file_path]: code });
+        out = postProcessFindings(raw, { [a.file_path]: code }, trace);
         break;
       }
 
       case 'local_find': {
+        const trace = buildTrace('local_find', HEAVY_MODEL, a);
         const grep = execSync(
           `cd ${JSON.stringify(a.root)} && (rg --files 2>/dev/null || find . -type f) | head -500`,
           { encoding: 'utf8' },
@@ -817,24 +878,26 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           'You rank candidate file paths for relevance. Return most relevant first with one-line reasons. No duplicates.',
           `Find files matching: ${a.description}\n\nCandidates (first 500 files in ${a.root}):\n${grep}\n\n` +
           `Output format:\npath — one-line reason\nList at most 15 paths, best first.`,
-          { caveman: false, penalties: 'structured', maxTokens: 800 },
+          { caveman: false, penalties: 'structured', maxTokens: 800, trace },
         );
         break;
       }
 
       case 'local_summarize': {
+        const trace = buildTrace('local_summarize', HEAVY_MODEL, a);
         const chunks = await Promise.all(
           a.file_paths.map(async (p) => `=== ${p} ===\n${await fs.readFile(p, 'utf8')}`),
         );
         out = await askLocal(
           'You produce concise, structured summaries. No filler.',
           capText(`Summarize the following files${a.focus ? ` focusing on ${a.focus}` : ''}:\n\n${chunks.join('\n\n')}`),
-          { maxTokens: 1500 },
+          { maxTokens: 1500, trace },
         );
         break;
       }
 
       case 'local_feature_audit': {
+        const trace = buildTrace('local_feature_audit', HEAVY_MODEL, a);
         // Fix C (2026-04-17 bench BUG 2): cap at 3 files server-side. Leg A
         // showed loop pathology + invented findings when called with 6 real
         // files; direct-call path clean at the same input. Force callers to
@@ -905,30 +968,33 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           `FILES:\n\n${chunks.join('\n\n')}`,
         );
         const rawFeature = await askLocal(featureSystem, featureBody, {
-          caveman: false, penalties: 'structured', maxTokens: 2500,
+          caveman: false, penalties: 'structured', maxTokens: 2500, trace,
         });
         let parsed = parseFindingsJson(rawFeature);
+        dumpFilterStage(trace, 'post-json-first', { parsed, ok: Array.isArray(parsed) });
         if (!parsed) {
           const repairBody =
             `Your previous reply was not valid JSON. Output ONLY the JSON array ` +
             `described above. No prose, no markdown fences. Start with \`[\` and ` +
             `end with \`]\`.\n\nPrevious reply (for reference only):\n${rawFeature.slice(0, 2000)}`;
           const repaired = await askLocal(featureSystem, repairBody, {
-            caveman: false, penalties: 'structured', maxTokens: 2500,
+            caveman: false, penalties: 'structured', maxTokens: 2500, trace,
           });
           parsed = parseFindingsJson(repaired);
+          dumpFilterStage(trace, 'post-json-retry', { parsed, ok: Array.isArray(parsed) });
           if (!parsed) {
             // Last resort: treat the first reply as plain markdown findings.
             console.error('[local-llm-bridge] feature_audit: JSON parse failed twice; falling back to markdown parse');
-            out = postProcessFindings(rawFeature, fileMap);
+            out = postProcessFindings(rawFeature, fileMap, trace);
             break;
           }
         }
-        out = postProcessFindings(renderFindingsMarkdown(parsed), fileMap);
+        out = postProcessFindings(renderFindingsMarkdown(parsed), fileMap, trace);
         break;
       }
 
       case 'local_diff_review': {
+        const trace = buildTrace('local_diff_review', HEAVY_MODEL, a);
         // Quote refs so branch names with slashes (feature/x) or special chars
         // don't break the shell. `git diff A..B` means A-as-base, B-as-head.
         const diff = execSync(
@@ -949,15 +1015,16 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             `Stop after last finding.\n\n` +
             `DIFF (${a.ref_a}..${a.ref_b}):\n\`\`\`diff\n${diff}\n\`\`\``,
           ),
-          { caveman: false, penalties: 'structured', maxTokens: 2000 },
+          { caveman: false, penalties: 'structured', maxTokens: 2000, trace },
         );
         // diff_review has no single-file map (the diff spans many files and
         // cited line numbers are hunk-relative). Skip verify; dedup/AP only.
-        out = postProcessFindings(rawDiff);
+        out = postProcessFindings(rawDiff, {}, trace);
         break;
       }
 
       case 'local_group_commits': {
+        const trace = buildTrace('local_group_commits', HEAVY_MODEL, a);
         // `--name-only` appends changed-file list after each commit.
         // Format: hash | subject | author | date, then a blank line, then files.
         const log = execSync(
@@ -983,7 +1050,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             `- do NOT repeat groups. stop after last group.\n\n` +
             `COMMITS (${a.range}):\n\n${log}`,
           ),
-          { caveman: false, penalties: 'structured', maxTokens: 2000 },
+          { caveman: false, penalties: 'structured', maxTokens: 2000, trace },
         );
         break;
       }
@@ -1024,6 +1091,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       }
 
       case 'local_deep_audit': {
+        const trace = buildTrace('local_deep_audit', DEEP_MODEL, a);
         const code = await fs.readFile(a.file_path, 'utf8');
         const numbered = numberLines(code);
         const rawDeep = await askLocal(
@@ -1031,9 +1099,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           `Audit file for: ${a.checklist}\n\nFILE: ${a.file_path}\n\`\`\`\n${numbered}\n\`\`\`\n\n` +
           `Output format:\n- [SEVERITY] path:line — finding (one line each)\n` +
           `Severities: BLOCKER / MAJOR / MINOR / NIT.\nStop after last finding.`,
-          { model: DEEP_MODEL, caveman: false, penalties: 'structured', maxTokens: 1800 },
+          { model: DEEP_MODEL, caveman: false, penalties: 'structured', maxTokens: 1800, trace },
         );
-        out = postProcessFindings(rawDeep, { [a.file_path]: code });
+        out = postProcessFindings(rawDeep, { [a.file_path]: code }, trace);
         break;
       }
 

@@ -82,26 +82,57 @@ Opus additionally found 6 real issues both local models missed (`publishableKey 
 
 ## Leg B — Context ceiling (anchor retrieval)
 
-### qwen2.5-coder-7b-instruct
+### undefined
 
 | target_tokens | actual_prompt_tokens | wall_ms | recalled | has_repeat | anchor_repeat | http_status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2000 | 1366 | 6844 | 3 | false | false | 200 |
-| 4000 | 2551 | 11712 | 3 | false | false | 200 |
-| 4000 | 2554 | 9780 | 3 | false | false | 200 |
-| 8000 | 4917 | 17211 | 3 | false | false | 200 |
-| 16000 | 9652 | 32635 | 3 | false | false | 200 |
-| 24000 | 14387 | 49633 | 3 | false | false | 200 |
-| 32000 | 19116 | 68952 | 3 | false | false | 200 |
-| 48000 | 28578 | 120074 | 3 | false | false | 200 |
-| 64000 | 38038 | 167747 | 3 | false | false | 200 |
-| 96000 | -1 | 199692 | 0 | false | false | 400 |
-| 128000 | -1 | 6925 | 0 | false | false | 400 |
-| 160000 | -1 | 878 | 0 | false | false | 400 |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |
 
 **Summary:**
-- Max accepted input (HTTP 200 + 3/3 recall, no repeat): **38038 actual prompt tokens**.
-- First HTTP 400 at target=96000 (server rejected: input exceeded configured context window).
+- Max accepted input (HTTP 200 + 3/3 recall, no repeat): **0 actual prompt tokens**.
+- First HTTP 400 at target=undefined (server rejected: input exceeded configured context window).
 - No recall or repetition degradation observed within accepted range.
 
 
@@ -120,6 +151,10 @@ Opus additionally found 6 real issues both local models missed (`publishableKey 
 | qwen2.5-coder-7b-instruct | repetition-bait | 1656 | 0 | 1 | true | true |
 | qwen2.5-coder-7b-instruct | binary | 423 | 0 | 1 | true | true |
 | qwen2.5-coder-7b-instruct | huge | 5622 | 0 | 1 | true | true |
+| qwen2.5-coder-7b-instruct | empty | 2347 | 0 | 1 | true | true |
+| qwen2.5-coder-7b-instruct | repetition-bait | 1302 | 0 | 1 | true | true |
+| qwen2.5-coder-7b-instruct | binary | 404 | 0 | 1 | true | true |
+| qwen2.5-coder-7b-instruct | huge | 5974 | 0 | 1 | true | true |
 
 ---
 
@@ -131,10 +166,10 @@ Opus additionally found 6 real issues both local models missed (`publishableKey 
 | qwen2.5-coder-14b-instruct | short_audit | 10 | 2675 | 2891 | 2891 | 14.57 |
 | qwen2.5-coder-14b-instruct | mid_summarize | 10 | 7047 | 12925 | 12925 | 14.76 |
 | qwen2.5-coder-14b-instruct | long_analysis | 10 | 50043 | 51990 | 51990 | 15.97 |
-| qwen2.5-coder-7b-instruct | short_classify | 10 | 211 | 678 | 678 | 9.52 |
-| qwen2.5-coder-7b-instruct | short_audit | 10 | 3629 | 4575 | 4575 | 27.56 |
-| qwen2.5-coder-7b-instruct | mid_summarize | 10 | 5485 | 6542 | 6542 | 29.02 |
-| qwen2.5-coder-7b-instruct | long_analysis | 10 | 25427 | 25700 | 25700 | 31.42 |
+| qwen2.5-coder-7b-instruct | short_classify | 30 | 197 | 282 | 678 | 10.20 |
+| qwen2.5-coder-7b-instruct | short_audit | 30 | 3224 | 4318 | 4575 | 30.12 |
+| qwen2.5-coder-7b-instruct | mid_summarize | 30 | 5092 | 6460 | 6542 | 30.77 |
+| qwen2.5-coder-7b-instruct | long_analysis | 30 | 25114 | 25511 | 25700 | 31.79 |
 
 ---
 
@@ -144,6 +179,9 @@ Opus additionally found 6 real issues both local models missed (`publishableKey 
 | --- | --- | --- | --- | --- | --- | --- |
 | qwen2.5-coder-7b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
 | qwen2.5-coder-14b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
+| qwen2.5-coder-7b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
+| qwen2.5-coder-14b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
+| qwen2.5-coder-7b-instruct | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
 
 ---
 
