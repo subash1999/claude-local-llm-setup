@@ -347,12 +347,21 @@ function extractFindingSymbols(text) {
   return out;
 }
 
-// Fix E: re-read the cited file ±3 lines around each finding and verify the
+// Fix E: re-read the cited file ±5 lines around each finding and verify the
 // finding's distinctive symbols actually appear there. If not in the window
 // but found exactly once elsewhere in the file, snap the line number. If
 // nowhere (past-EOF fabrications) or ambiguously everywhere, drop it and log.
 // When no fileMap entry exists for a finding's path, the finding passes
 // through unchanged — verify is skipped, not failed.
+//
+// Window history: initial ±3 (round 1, fc98bf4) was too tight. Round-2
+// phase-3 snapshot on synthetic Clerk 3-file batch (bench/results/round2/
+// pre-filter-snapshot-2026-04-17-analysis.md) showed 0 over-drops on ±3,
+// but the leg-a-rebench-real-2026-04-17 ran into drops on real Clerk files
+// with long imports/comments before hooks (rebench:81). ±5 keeps the
+// symbol-match precision constraint but allows 2 more lines of slack for
+// the typical case where the model cites a few lines before the symbol
+// appears (imports counted, blank lines uncounted, etc).
 function verifyAndSnapFindings(raw, fileMap) {
   const lines = raw.split('\n');
   const out = [];
@@ -369,8 +378,8 @@ function verifyAndSnapFindings(raw, fileMap) {
     if (!symbols.length) { out.push(line); continue; }
 
     const srcLines = content.split('\n');
-    const wStart = Math.max(0, f.line - 4);       // cited line is 1-based; window is ±3
-    const wEnd = Math.min(srcLines.length, f.line + 3);
+    const wStart = Math.max(0, f.line - 6);       // cited line is 1-based; window is ±5
+    const wEnd = Math.min(srcLines.length, f.line + 5);
     const inWindow = srcLines
       .slice(wStart, wEnd)
       .some((l) => symbols.some((s) => l.includes(s)));
